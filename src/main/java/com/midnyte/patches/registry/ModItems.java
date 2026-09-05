@@ -1,7 +1,7 @@
 package com.midnyte.patches.registry;
 
 import com.midnyte.patches.PatchesMod;
-import net.fabricmc.fabric.api.itemgroup.v1.CreativeModeTabEvents;
+import net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
@@ -27,7 +27,11 @@ public final class ModItems {
             new Item.Properties().spawnEgg(ModEntities.PATCHES)
     );
 
-    private static Item register(ResourceKey<Item> key, Function<Item.Properties, Item> factory, Item.Properties properties) {
+    private static Item register(
+            ResourceKey<Item> key,
+            Function<Item.Properties, Item> factory,
+            Item.Properties properties
+    ) {
         Item item = factory.apply(properties.setId(key));
         return Registry.register(BuiltInRegistries.ITEM, key, item);
     }
