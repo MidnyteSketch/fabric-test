@@ -220,43 +220,32 @@ public final class PatchesModel extends EntityModel<PatchesRenderState> {
     }
 
     private void applySittingPose() {
-        // Keep the body/head lowering that already reads well in-game.
+        // Lower Patches while keeping every leg at its normal, undistorted scale.
         head.y += 3.25F;
         body.y += 3.25F;
 
         /*
-         * A Creeper has no knees, so folding the full-length legs flat makes
-         * them join into a single rectangular platform. For the seated pose,
-         * instead compress each leg vertically and reposition it as a chunky
-         * independent foot beneath the lowered body.
+         * The torso now provides the apparent shortening: the upper portions of
+         * the full-size legs disappear into the lowered body instead of being
+         * vertically squashed. This preserves the original leg texture density.
          */
-        frontLeftLeg.yScale = 0.55F;
-        frontRightLeg.yScale = 0.55F;
-        backLeftLeg.yScale = 0.55F;
-        backRightLeg.yScale = 0.55F;
 
-        // Spread the left/right pairs enough to leave a visible center gap.
-        frontLeftLeg.x -= 0.85F;
-        backLeftLeg.x -= 0.85F;
-        frontRightLeg.x += 0.85F;
-        backRightLeg.x += 0.85F;
+        // Spread the left/right pairs enough to keep each foot visually distinct.
+        frontLeftLeg.x -= 0.65F;
+        backLeftLeg.x -= 0.65F;
+        frontRightLeg.x += 0.65F;
+        backRightLeg.x += 0.65F;
 
-        // Lower the shortened legs so their bottoms remain at ground level.
-        frontLeftLeg.y += 2.70F;
-        frontRightLeg.y += 2.70F;
-        backLeftLeg.y += 2.70F;
-        backRightLeg.y += 2.70F;
+        // Separate the front and rear pairs without creating a broad pedestal.
+        frontLeftLeg.z += 0.35F;
+        frontRightLeg.z += 0.35F;
+        backLeftLeg.z -= 0.35F;
+        backRightLeg.z -= 0.35F;
 
-        // Separate the front and rear pairs instead of allowing them to tile.
-        frontLeftLeg.z += 0.55F;
-        frontRightLeg.z += 0.55F;
-        backLeftLeg.z -= 0.55F;
-        backRightLeg.z -= 0.55F;
-
-        // Small opposing splays keep the feet organic without inventing knees.
-        frontLeftLeg.xRot = 0.16F;
-        frontRightLeg.xRot = 0.16F;
-        backLeftLeg.xRot = -0.16F;
-        backRightLeg.xRot = -0.16F;
+        // A very small opposing splay keeps the pose from looking perfectly rigid.
+        frontLeftLeg.xRot = 0.08F;
+        frontRightLeg.xRot = 0.08F;
+        backLeftLeg.xRot = -0.08F;
+        backRightLeg.xRot = -0.08F;
     }
 }
