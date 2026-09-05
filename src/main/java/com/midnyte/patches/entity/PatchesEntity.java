@@ -52,7 +52,15 @@ public final class PatchesEntity extends PathfinderMob {
     protected void registerGoals() {
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.goalSelector.addGoal(1, new PatchesFollowGoal(this, 1.15, 4.0F, 2.5F));
-        this.goalSelector.addGoal(2, new TemptGoal(this, 1.0, Ingredient.of(Items.COOKIE), false));
+        this.goalSelector.addGoal(
+                2,
+                new TemptGoal(
+                        this,
+                        1.0,
+                        Ingredient.of(Items.COOKIE),
+                        false
+                )
+        );
         this.goalSelector.addGoal(5, new RandomStrollGoal(this, 0.85));
         this.goalSelector.addGoal(6, new LookAtPlayerGoal(this, Player.class, 8.0F));
         this.goalSelector.addGoal(7, new RandomLookAroundGoal(this));
@@ -70,14 +78,26 @@ public final class PatchesEntity extends PathfinderMob {
 
     public void setMode(PatchesMode mode) {
         this.entityData.set(MODE, mode.id());
+
         if (mode == PatchesMode.SITTING) {
             this.getNavigation().stop();
-            this.setDeltaMovement(0.0, this.getDeltaMovement().y, 0.0);
+            this.setDeltaMovement(
+                    0.0,
+                    this.getDeltaMovement().y,
+                    0.0
+            );
         }
     }
 
     public @Nullable Player getFollowingPlayer() {
-        if (followingPlayerUuid == null || !(level() instanceof ServerLevel serverLevel)) return null;
+        if (followingPlayerUuid == null) {
+            return null;
+        }
+
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return null;
+        }
+
         return serverLevel.getPlayerByUUID(followingPlayerUuid);
     }
 
@@ -91,7 +111,11 @@ public final class PatchesEntity extends PathfinderMob {
 
         if (!level().isClientSide() && getMode() == PatchesMode.SITTING) {
             this.getNavigation().stop();
-            this.setDeltaMovement(0.0, this.getDeltaMovement().y, 0.0);
+            this.setDeltaMovement(
+                    0.0,
+                    this.getDeltaMovement().y,
+                    0.0
+            );
         }
     }
 
@@ -102,15 +126,23 @@ public final class PatchesEntity extends PathfinderMob {
         if (stack.is(Items.COOKIE)) {
             if (!level().isClientSide()) {
                 setFollowingPlayer(player);
+
                 if (getMode() == PatchesMode.WANDERING) {
                     setMode(PatchesMode.FOLLOWING);
                 } else if (getMode() == PatchesMode.FOLLOWING) {
                     setMode(PatchesMode.WANDERING);
                 }
+
                 heal(2.0F);
                 consumeOne(player, stack);
-                playSound(SoundEvents.GENERIC_EAT, 0.7F, 1.15F);
+
+                playSound(
+                        SoundEvents.GENERIC_EAT.value(),
+                        0.7F,
+                        1.15F
+                );
             }
+
             return InteractionResult.SUCCESS;
         }
 
@@ -123,21 +155,43 @@ public final class PatchesEntity extends PathfinderMob {
                     setMode(PatchesMode.SITTING);
                 }
             }
+
             return InteractionResult.SUCCESS;
         }
 
         if (isLikedFood(stack) && getHealth() < getMaxHealth()) {
             if (!level().isClientSide()) {
-                float healing = stack.is(Items.MUSHROOM_STEW) ? 6.0F : stack.is(Items.APPLE) ? 3.0F : 2.0F;
+                float healing;
+
+                if (stack.is(Items.MUSHROOM_STEW)) {
+                    healing = 6.0F;
+                } else if (stack.is(Items.APPLE)) {
+                    healing = 3.0F;
+                } else {
+                    healing = 2.0F;
+                }
+
                 heal(healing);
+
                 boolean stew = stack.is(Items.MUSHROOM_STEW);
+
                 consumeOne(player, stack);
+
                 if (stew && !player.hasInfiniteMaterials()) {
                     ItemStack bowl = new ItemStack(Items.BOWL);
-                    if (!player.addItem(bowl)) player.drop(bowl, false);
+
+                    if (!player.addItem(bowl)) {
+                        player.drop(bowl, false);
+                    }
                 }
-                playSound(SoundEvents.GENERIC_EAT, 0.7F, 1.05F);
+
+                playSound(
+                        SoundEvents.GENERIC_EAT.value(),
+                        0.7F,
+                        1.05F
+                );
             }
+
             return InteractionResult.SUCCESS;
         }
 
@@ -149,7 +203,9 @@ public final class PatchesEntity extends PathfinderMob {
     }
 
     private static boolean isLikedFood(ItemStack stack) {
-        return stack.is(Items.APPLE) || stack.is(Items.GLOW_BERRIES) || stack.is(Items.MUSHROOM_STEW);
+        return stack.is(Items.APPLE)
+                || stack.is(Items.GLOW_BERRIES)
+                || stack.is(Items.MUSHROOM_STEW);
     }
 
     private static boolean isRejectedFood(ItemStack stack) {
@@ -164,7 +220,9 @@ public final class PatchesEntity extends PathfinderMob {
     }
 
     private static void consumeOne(Player player, ItemStack stack) {
-        if (!player.hasInfiniteMaterials()) stack.shrink(1);
+        if (!player.hasInfiniteMaterials()) {
+            stack.shrink(1);
+        }
     }
 
     @Override
@@ -175,16 +233,46 @@ public final class PatchesEntity extends PathfinderMob {
     @Override
     protected void addAdditionalSaveData(ValueOutput output) {
         super.addAdditionalSaveData(output);
-        output.putInt("PatchesMode", getMode().id());
-        output.putInt("PatchesModeBeforeSitting", modeBeforeSitting.id());
-        output.storeNullable("PatchesFollowingPlayer", UUIDUtil.CODEC, followingPlayerUuid);
+
+        output.putInt(
+                "PatchesMode",
+                getMode().id()
+        );
+
+        output.putInt(
+                "PatchesModeBeforeSitting",
+                modeBeforeSitting.id()
+        );
+
+        output.storeNullable(
+                "PatchesFollowingPlayer",
+                UUIDUtil.CODEC,
+                followingPlayerUuid
+        );
     }
 
     @Override
     protected void readAdditionalSaveData(ValueInput input) {
         super.readAdditionalSaveData(input);
-        setMode(PatchesMode.fromId(input.getIntOr("PatchesMode", PatchesMode.WANDERING.id())));
-        modeBeforeSitting = PatchesMode.fromId(input.getIntOr("PatchesModeBeforeSitting", PatchesMode.WANDERING.id()));
-        followingPlayerUuid = input.read("PatchesFollowingPlayer", UUIDUtil.CODEC).orElse(null);
+
+        setMode(
+                PatchesMode.fromId(
+                        input.getIntOr(
+                                "PatchesMode",
+                                PatchesMode.WANDERING.id()
+                        )
+                )
+        );
+
+        modeBeforeSitting = PatchesMode.fromId(
+                input.getIntOr(
+                        "PatchesModeBeforeSitting",
+                        PatchesMode.WANDERING.id()
+                )
+        );
+
+        followingPlayerUuid = input
+                .read("PatchesFollowingPlayer", UUIDUtil.CODEC)
+                .orElse(null);
     }
 }
