@@ -220,34 +220,43 @@ public final class PatchesModel extends EntityModel<PatchesRenderState> {
     }
 
     private void applySittingPose() {
-        // The lowered body/head placement from the previous pass was correct.
+        // Keep the body/head lowering that already reads well in-game.
         head.y += 3.25F;
         body.y += 3.25F;
 
         /*
-         * Put the front legs flat on the ground as the two large forward feet.
-         * A 90-degree X rotation turns the six-pixel-tall leg into a six-pixel-long
-         * foot. Moving the pivot to ground level prevents the diagonal/hanging
-         * appearance produced by the previous 81-degree rotation.
+         * A Creeper has no knees, so folding the full-length legs flat makes
+         * them join into a single rectangular platform. For the seated pose,
+         * instead compress each leg vertically and reposition it as a chunky
+         * independent foot beneath the lowered body.
          */
-        frontLeftLeg.y += 6.0F;
-        frontRightLeg.y += 6.0F;
-        frontLeftLeg.z -= 2.25F;
-        frontRightLeg.z -= 2.25F;
-        frontLeftLeg.xRot = Mth.HALF_PI;
-        frontRightLeg.xRot = Mth.HALF_PI;
+        frontLeftLeg.yScale = 0.55F;
+        frontRightLeg.yScale = 0.55F;
+        backLeftLeg.yScale = 0.55F;
+        backRightLeg.yScale = 0.55F;
 
-        /*
-         * Fold the rear legs backward and keep them close to the body. Their
-         * ground-level pivots make them read as tucked haunches rather than
-         * diagonal stilts. They sit slightly inboard in Z so the front feet
-         * remain the dominant shape from the front/three-quarter view.
-         */
-        backLeftLeg.y += 6.0F;
-        backRightLeg.y += 6.0F;
-        backLeftLeg.z += 1.25F;
-        backRightLeg.z += 1.25F;
-        backLeftLeg.xRot = -Mth.HALF_PI;
-        backRightLeg.xRot = -Mth.HALF_PI;
+        // Spread the left/right pairs enough to leave a visible center gap.
+        frontLeftLeg.x -= 0.85F;
+        backLeftLeg.x -= 0.85F;
+        frontRightLeg.x += 0.85F;
+        backRightLeg.x += 0.85F;
+
+        // Lower the shortened legs so their bottoms remain at ground level.
+        frontLeftLeg.y += 2.70F;
+        frontRightLeg.y += 2.70F;
+        backLeftLeg.y += 2.70F;
+        backRightLeg.y += 2.70F;
+
+        // Separate the front and rear pairs instead of allowing them to tile.
+        frontLeftLeg.z += 0.55F;
+        frontRightLeg.z += 0.55F;
+        backLeftLeg.z -= 0.55F;
+        backRightLeg.z -= 0.55F;
+
+        // Small opposing splays keep the feet organic without inventing knees.
+        frontLeftLeg.xRot = 0.16F;
+        frontRightLeg.xRot = 0.16F;
+        backLeftLeg.xRot = -0.16F;
+        backRightLeg.xRot = -0.16F;
     }
 }
