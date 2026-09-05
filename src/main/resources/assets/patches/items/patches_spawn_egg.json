@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "patches:item/patches_spawn_egg"
+  }
+}

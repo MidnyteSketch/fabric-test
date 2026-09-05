@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "patches",
+  "version": "${version}",
+  "name": "Patches",
+  "description": "Adds Patches, a friendly curious Creeper companion.",
+  "authors": ["Midnyte"],
+  "license": "ARR",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.midnyte.patches.PatchesMod"],
+    "client": ["com.midnyte.patches.client.PatchesClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}
