@@ -137,7 +137,7 @@ public final class PatchesEntity extends PathfinderMob {
                 consumeOne(player, stack);
 
                 playSound(
-                        SoundEvents.GENERIC_EAT.value(),
+                        SoundEvents.GENERIC_EAT.value().value(),
                         0.7F,
                         1.15F
                 );
@@ -186,7 +186,7 @@ public final class PatchesEntity extends PathfinderMob {
                 }
 
                 playSound(
-                        SoundEvents.GENERIC_EAT.value(),
+                        SoundEvents.GENERIC_EAT.value().value(),
                         0.7F,
                         1.05F
                 );
