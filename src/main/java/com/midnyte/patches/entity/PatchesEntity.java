@@ -9,6 +9,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
@@ -36,8 +37,17 @@ public final class PatchesEntity extends PathfinderMob {
     private static final EntityDataAccessor<ItemStack> BUNDLE =
             SynchedEntityData.defineId(PatchesEntity.class, EntityDataSerializers.ITEM_STACK);
 
+    private static final EntityDataAccessor<Integer> EXPRESSION =
+            SynchedEntityData.defineId(PatchesEntity.class, EntityDataSerializers.INT);
+
+    private static final int COOKIE_LAUGH_TICKS = 20;
+    private static final int OTHER_FOOD_TICKS = 12;
+    private static final int HURT_FACE_TICKS = 12;
+    private static final double COOKIE_NOTICE_RANGE = 10.0;
+
     private PatchesMode modeBeforeSitting = PatchesMode.WANDERING;
     private @Nullable UUID followingPlayerUuid;
+    private int expressionOverrideTicks;
 
     public PatchesEntity(EntityType<? extends PatchesEntity> entityType, Level level) {
         super(entityType, level);
@@ -74,6 +84,7 @@ public final class PatchesEntity extends PathfinderMob {
         super.defineSynchedData(builder);
         builder.define(MODE, PatchesMode.WANDERING.id());
         builder.define(BUNDLE, ItemStack.EMPTY);
+        builder.define(EXPRESSION, PatchesExpression.DEFAULT.id());
     }
 
     public PatchesMode getMode() {
@@ -91,6 +102,19 @@ public final class PatchesEntity extends PathfinderMob {
                     0.0
             );
         }
+    }
+
+    public PatchesExpression getExpression() {
+        return PatchesExpression.fromId(this.entityData.get(EXPRESSION));
+    }
+
+    private void setExpression(PatchesExpression expression) {
+        this.entityData.set(EXPRESSION, expression.id());
+    }
+
+    private void setTimedExpression(PatchesExpression expression, int ticks) {
+        setExpression(expression);
+        expressionOverrideTicks = ticks;
     }
 
     public ItemStack getBundleStack() {
@@ -132,26 +156,58 @@ public final class PatchesEntity extends PathfinderMob {
     public void tick() {
         super.tick();
 
-        if (!level().isClientSide() && getMode() == PatchesMode.SITTING) {
-            this.getNavigation().stop();
-            this.setDeltaMovement(
-                    0.0,
-                    this.getDeltaMovement().y,
-                    0.0
-            );
+        if (!level().isClientSide()) {
+            if (getMode() == PatchesMode.SITTING) {
+                this.getNavigation().stop();
+                this.setDeltaMovement(
+                        0.0,
+                        this.getDeltaMovement().y,
+                        0.0
+                );
+            }
+
+            updateExpression();
         }
+    }
+
+    private void updateExpression() {
+        if (expressionOverrideTicks > 0) {
+            expressionOverrideTicks--;
+            return;
+        }
+
+        if (getMode() == PatchesMode.SITTING) {
+            setExpression(PatchesExpression.RESTING);
+            return;
+        }
+
+        Player temptingPlayer = level().getNearestPlayer(this, COOKIE_NOTICE_RANGE);
+        if (temptingPlayer != null && playerIsHoldingCookie(temptingPlayer)) {
+            setExpression(PatchesExpression.SURPRISED);
+            return;
+        }
+
+        setExpression(PatchesExpression.DEFAULT);
+    }
+
+    private static boolean playerIsHoldingCookie(Player player) {
+        return player.getMainHandItem().is(Items.COOKIE)
+                || player.getOffhandItem().is(Items.COOKIE);
+    }
+
+    @Override
+    public boolean hurtServer(ServerLevel level, DamageSource source, float amount) {
+        boolean damaged = super.hurtServer(level, source, amount);
+        if (damaged) {
+            setTimedExpression(PatchesExpression.HURT, HURT_FACE_TICKS);
+        }
+        return damaged;
     }
 
     @Override
     protected InteractionResult mobInteract(Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
 
-        /*
-         * Bundle equipment is deliberately separate from Patches' inventory.
-         * The exact vanilla ItemStack is stored, including all of its contents
-         * and components, and is returned unchanged when removed. Every vanilla
-         * dyed Bundle is accepted through the minecraft:bundles item tag.
-         */
         if (BundleSupport.isBundle(stack)) {
             if (hasBundle()) {
                 return InteractionResult.FAIL;
@@ -169,11 +225,6 @@ public final class PatchesEntity extends PathfinderMob {
             return InteractionResult.SUCCESS;
         }
 
-        /*
-         * Sneak + empty hand removes the equipped Bundle. This check comes
-         * before the normal empty-hand Sit/Stand interaction so the controls
-         * do not conflict.
-         */
         if (stack.isEmpty() && player.isShiftKeyDown() && hasBundle()) {
             if (!level().isClientSide()) {
                 ItemStack equippedBundle = getBundleStack().copy();
@@ -199,6 +250,7 @@ public final class PatchesEntity extends PathfinderMob {
 
                 heal(2.0F);
                 consumeOne(player, stack);
+                setTimedExpression(PatchesExpression.LAUGH, COOKIE_LAUGH_TICKS);
 
                 playSound(
                         SoundEvents.GENERIC_EAT.value(),
@@ -240,6 +292,7 @@ public final class PatchesEntity extends PathfinderMob {
                 boolean stew = stack.is(Items.MUSHROOM_STEW);
 
                 consumeOne(player, stack);
+                setTimedExpression(PatchesExpression.MOUTH_OPEN, OTHER_FOOD_TICKS);
 
                 if (stew && !player.hasInfiniteMaterials()) {
                     ItemStack bowl = new ItemStack(Items.BOWL);
@@ -353,5 +406,8 @@ public final class PatchesEntity extends PathfinderMob {
         } else {
             setBundleStack(ItemStack.EMPTY);
         }
+
+        expressionOverrideTicks = 0;
+        updateExpression();
     }
 }
