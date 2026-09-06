@@ -1,6 +1,7 @@
 package com.midnyte.patches.entity;
 
 import com.midnyte.patches.entity.ai.PatchesFollowGoal;
+import com.midnyte.patches.entity.ai.PatchesTemptGoal;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -18,7 +19,6 @@ import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.goal.RandomStrollGoal;
-import net.minecraft.world.entity.ai.goal.TemptGoal;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -67,7 +67,7 @@ public final class PatchesEntity extends PathfinderMob {
         this.goalSelector.addGoal(1, new PatchesFollowGoal(this, 1.15, 4.0F, 2.5F));
         this.goalSelector.addGoal(
                 2,
-                new TemptGoal(
+                new PatchesTemptGoal(
                         this,
                         1.0,
                         Ingredient.of(Items.COOKIE),
