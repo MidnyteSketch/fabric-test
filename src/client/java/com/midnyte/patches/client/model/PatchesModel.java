@@ -2,6 +2,7 @@ package com.midnyte.patches.client.model;
 
 import com.midnyte.patches.client.render.PatchesRenderState;
 import com.midnyte.patches.entity.PatchesMode;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.model.EntityModel;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.geom.PartPose;
@@ -39,6 +40,10 @@ public final class PatchesModel extends EntityModel<PatchesRenderState> {
         this.frontRightLeg = root.getChild("front_right_leg");
         this.backLeftLeg = root.getChild("back_left_leg");
         this.backRightLeg = root.getChild("back_right_leg");
+    }
+
+    public void translateToBody(PoseStack poseStack) {
+        this.body.translateAndRotate(poseStack);
     }
 
     public static LayerDefinition createBodyLayer() {
