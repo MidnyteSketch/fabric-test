@@ -13,7 +13,13 @@ public final class ModModelLayers {
             "main"
     );
 
+    public static final ModelLayerLocation PATCHES_FACE = new ModelLayerLocation(
+            Identifier.fromNamespaceAndPath(PatchesMod.MOD_ID, "patches"),
+            "face"
+    );
+
     public static void register() {
         ModelLayerRegistry.registerModelLayer(PATCHES, PatchesModel::createBodyLayer);
+        ModelLayerRegistry.registerModelLayer(PATCHES_FACE, PatchesFaceModel::createFaceLayer);
     }
 }
