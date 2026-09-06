@@ -9,7 +9,7 @@ import net.minecraft.client.renderer.entity.RenderLayerParent;
 import net.minecraft.client.renderer.entity.layers.RenderLayer;
 import net.minecraft.resources.Identifier;
 
-/** Draws Patches' current non-default face just above the base head texture. */
+/** Draws Patches' current face just above the faceless base head texture. */
 public final class PatchesFaceLayer extends RenderLayer<PatchesRenderState, PatchesModel> {
     private static final float FACE_SCALE = 1.001F;
 
@@ -27,9 +27,6 @@ public final class PatchesFaceLayer extends RenderLayer<PatchesRenderState, Patc
             float xRot
     ) {
         Identifier texture = textureFor(state.expression);
-        if (texture == null) {
-            return;
-        }
 
         poseStack.pushPose();
         poseStack.scale(FACE_SCALE, FACE_SCALE, FACE_SCALE);
@@ -50,14 +47,14 @@ public final class PatchesFaceLayer extends RenderLayer<PatchesRenderState, Patc
 
     private static Identifier textureFor(PatchesExpression expression) {
         String path = switch (expression) {
+            case DEFAULT -> "textures/entity/face/default.png";
             case SURPRISED -> "textures/entity/face/surprised.png";
             case LAUGH -> "textures/entity/face/laugh.png";
             case MOUTH_OPEN -> "textures/entity/face/mouth_open.png";
             case HURT -> "textures/entity/face/hurt.png";
             case RESTING -> "textures/entity/face/resting.png";
-            case DEFAULT -> null;
         };
 
-        return path == null ? null : Identifier.fromNamespaceAndPath(PatchesMod.MOD_ID, path);
+        return Identifier.fromNamespaceAndPath(PatchesMod.MOD_ID, path);
     }
 }
