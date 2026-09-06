@@ -18,6 +18,7 @@ public final class PatchesRenderer extends MobRenderer<PatchesEntity, PatchesRen
 
     public PatchesRenderer(EntityRendererProvider.Context context) {
         super(context, new PatchesModel(context.bakeLayer(ModModelLayers.PATCHES)), 0.32F);
+        this.addLayer(new PatchesFaceLayer(this));
         this.addLayer(new PatchesBundleStrapLayer(this));
         this.addLayer(new PatchesBundleLayer(this));
     }
@@ -31,6 +32,7 @@ public final class PatchesRenderer extends MobRenderer<PatchesEntity, PatchesRen
     public void extractRenderState(PatchesEntity entity, PatchesRenderState state, float tickProgress) {
         super.extractRenderState(entity, state, tickProgress);
         state.mode = entity.getMode();
+        state.expression = entity.getExpression();
 
         ItemStack bundle = entity.getBundleStack();
         if (bundle.isEmpty()) {
