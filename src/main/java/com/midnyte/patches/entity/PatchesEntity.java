@@ -33,6 +33,9 @@ public final class PatchesEntity extends PathfinderMob {
     private static final EntityDataAccessor<Integer> MODE =
             SynchedEntityData.defineId(PatchesEntity.class, EntityDataSerializers.INT);
 
+    private static final EntityDataAccessor<ItemStack> BUNDLE =
+            SynchedEntityData.defineId(PatchesEntity.class, EntityDataSerializers.ITEM_STACK);
+
     private PatchesMode modeBeforeSitting = PatchesMode.WANDERING;
     private @Nullable UUID followingPlayerUuid;
 
@@ -70,6 +73,7 @@ public final class PatchesEntity extends PathfinderMob {
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
         super.defineSynchedData(builder);
         builder.define(MODE, PatchesMode.WANDERING.id());
+        builder.define(BUNDLE, ItemStack.EMPTY);
     }
 
     public PatchesMode getMode() {
@@ -87,6 +91,25 @@ public final class PatchesEntity extends PathfinderMob {
                     0.0
             );
         }
+    }
+
+    public ItemStack getBundleStack() {
+        return this.entityData.get(BUNDLE);
+    }
+
+    public boolean hasBundle() {
+        return !getBundleStack().isEmpty();
+    }
+
+    private void setBundleStack(ItemStack stack) {
+        if (!stack.isEmpty() && !stack.is(Items.BUNDLE)) {
+            throw new IllegalArgumentException("Patches can only equip a Bundle");
+        }
+
+        this.entityData.set(
+                BUNDLE,
+                stack.isEmpty() ? ItemStack.EMPTY : stack.copyWithCount(1)
+        );
     }
 
     public @Nullable Player getFollowingPlayer() {
@@ -122,6 +145,46 @@ public final class PatchesEntity extends PathfinderMob {
     @Override
     protected InteractionResult mobInteract(Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
+
+        /*
+         * Bundle equipment is deliberately separate from Patches' inventory.
+         * The exact vanilla ItemStack is stored, including all of its contents
+         * and components, and is returned unchanged when removed.
+         */
+        if (stack.is(Items.BUNDLE)) {
+            if (hasBundle()) {
+                return InteractionResult.FAIL;
+            }
+
+            if (!level().isClientSide()) {
+                ItemStack equippedBundle = stack.copyWithCount(1);
+                setBundleStack(equippedBundle);
+
+                if (!player.hasInfiniteMaterials()) {
+                    stack.shrink(1);
+                }
+            }
+
+            return InteractionResult.SUCCESS;
+        }
+
+        /*
+         * Sneak + empty hand removes the equipped Bundle. This check comes
+         * before the normal empty-hand Sit/Stand interaction so the controls
+         * do not conflict.
+         */
+        if (stack.isEmpty() && player.isShiftKeyDown() && hasBundle()) {
+            if (!level().isClientSide()) {
+                ItemStack equippedBundle = getBundleStack().copy();
+                setBundleStack(ItemStack.EMPTY);
+
+                if (!player.addItem(equippedBundle)) {
+                    player.drop(equippedBundle, false);
+                }
+            }
+
+            return InteractionResult.SUCCESS;
+        }
 
         if (stack.is(Items.COOKIE)) {
             if (!level().isClientSide()) {
@@ -249,6 +312,11 @@ public final class PatchesEntity extends PathfinderMob {
                 UUIDUtil.CODEC,
                 followingPlayerUuid
         );
+
+        ItemStack bundle = getBundleStack();
+        if (!bundle.isEmpty()) {
+            output.store("PatchesBundle", ItemStack.CODEC, bundle);
+        }
     }
 
     @Override
@@ -274,5 +342,15 @@ public final class PatchesEntity extends PathfinderMob {
         followingPlayerUuid = input
                 .read("PatchesFollowingPlayer", UUIDUtil.CODEC)
                 .orElse(null);
+
+        ItemStack savedBundle = input
+                .read("PatchesBundle", ItemStack.CODEC)
+                .orElse(ItemStack.EMPTY);
+
+        if (savedBundle.isEmpty() || savedBundle.is(Items.BUNDLE)) {
+            setBundleStack(savedBundle);
+        } else {
+            setBundleStack(ItemStack.EMPTY);
+        }
     }
 }

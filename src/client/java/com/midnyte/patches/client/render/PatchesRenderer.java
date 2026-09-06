@@ -7,6 +7,8 @@ import com.midnyte.patches.entity.PatchesEntity;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.entity.MobRenderer;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.ItemDisplayContext;
+import net.minecraft.world.item.ItemStack;
 
 public final class PatchesRenderer extends MobRenderer<PatchesEntity, PatchesRenderState, PatchesModel> {
     private static final Identifier TEXTURE = Identifier.fromNamespaceAndPath(
@@ -16,6 +18,7 @@ public final class PatchesRenderer extends MobRenderer<PatchesEntity, PatchesRen
 
     public PatchesRenderer(EntityRendererProvider.Context context) {
         super(context, new PatchesModel(context.bakeLayer(ModModelLayers.PATCHES)), 0.32F);
+        this.addLayer(new PatchesBundleLayer(this));
     }
 
     @Override
@@ -27,6 +30,18 @@ public final class PatchesRenderer extends MobRenderer<PatchesEntity, PatchesRen
     public void extractRenderState(PatchesEntity entity, PatchesRenderState state, float tickProgress) {
         super.extractRenderState(entity, state, tickProgress);
         state.mode = entity.getMode();
+
+        ItemStack bundle = entity.getBundleStack();
+        if (bundle.isEmpty()) {
+            state.bundle.clear();
+        } else {
+            this.itemModelResolver.updateForLiving(
+                    state.bundle,
+                    bundle,
+                    ItemDisplayContext.FIXED,
+                    entity
+            );
+        }
     }
 
     @Override
