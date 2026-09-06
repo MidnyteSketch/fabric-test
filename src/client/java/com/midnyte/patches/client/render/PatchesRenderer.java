@@ -16,13 +16,9 @@ public final class PatchesRenderer extends MobRenderer<PatchesEntity, PatchesRen
             "textures/entity/patches.png"
     );
 
-    private static final Identifier BUNDLE_TEXTURE = Identifier.fromNamespaceAndPath(
-            PatchesMod.MOD_ID,
-            "textures/entity/patches_bundle.png"
-    );
-
     public PatchesRenderer(EntityRendererProvider.Context context) {
         super(context, new PatchesModel(context.bakeLayer(ModModelLayers.PATCHES)), 0.32F);
+        this.addLayer(new PatchesBundleStrapLayer(this));
         this.addLayer(new PatchesBundleLayer(this));
     }
 
@@ -51,6 +47,6 @@ public final class PatchesRenderer extends MobRenderer<PatchesEntity, PatchesRen
 
     @Override
     public Identifier getTextureLocation(PatchesRenderState state) {
-        return state.bundle.isEmpty() ? TEXTURE : BUNDLE_TEXTURE;
+        return TEXTURE;
     }
 }
