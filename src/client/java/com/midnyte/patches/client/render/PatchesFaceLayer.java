@@ -1,6 +1,7 @@
 package com.midnyte.patches.client.render;
 
 import com.midnyte.patches.PatchesMod;
+import com.midnyte.patches.client.model.PatchesFaceModel;
 import com.midnyte.patches.client.model.PatchesModel;
 import com.midnyte.patches.entity.PatchesExpression;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -9,12 +10,16 @@ import net.minecraft.client.renderer.entity.RenderLayerParent;
 import net.minecraft.client.renderer.entity.layers.RenderLayer;
 import net.minecraft.resources.Identifier;
 
-/** Draws Patches' current face just above the faceless base head texture. */
+/** Draws Patches' current face on a tiny head-local shell. */
 public final class PatchesFaceLayer extends RenderLayer<PatchesRenderState, PatchesModel> {
-    private static final float FACE_SCALE = 1.001F;
+    private final PatchesFaceModel faceModel;
 
-    public PatchesFaceLayer(RenderLayerParent<PatchesRenderState, PatchesModel> renderer) {
+    public PatchesFaceLayer(
+            RenderLayerParent<PatchesRenderState, PatchesModel> renderer,
+            PatchesFaceModel faceModel
+    ) {
         super(renderer);
+        this.faceModel = faceModel;
     }
 
     @Override
@@ -28,11 +33,8 @@ public final class PatchesFaceLayer extends RenderLayer<PatchesRenderState, Patc
     ) {
         Identifier texture = textureFor(state.expression);
 
-        poseStack.pushPose();
-        poseStack.scale(FACE_SCALE, FACE_SCALE, FACE_SCALE);
-
         coloredCutoutModelCopyLayerRender(
-                this.getParentModel(),
+                this.faceModel,
                 texture,
                 poseStack,
                 submitNodeCollector,
@@ -41,8 +43,6 @@ public final class PatchesFaceLayer extends RenderLayer<PatchesRenderState, Patc
                 -1,
                 0
         );
-
-        poseStack.popPose();
     }
 
     private static Identifier textureFor(PatchesExpression expression) {
