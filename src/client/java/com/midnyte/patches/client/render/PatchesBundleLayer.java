@@ -36,14 +36,21 @@ public final class PatchesBundleLayer extends RenderLayer<PatchesRenderState, Pa
         poseStack.pushPose();
 
         /*
-         * Position the vanilla Bundle item against Patches' left flank.
-         * These are intentionally isolated here so the placement can be tuned
-         * from screenshots without touching any entity behavior.
+         * Anchor to the body model part first. This makes the Bundle inherit
+         * the body's animated position, including the vertical shift used by
+         * the sitting pose, instead of floating in entity-local space.
          */
-        poseStack.translate(-0.33F, -0.68F, 0.02F);
+        this.getParentModel().translateToBody(poseStack);
+
+        /*
+         * The body's pivot is at its lower edge, so move upward to the middle
+         * of the torso and outward onto Patches' left flank. These values are
+         * intentionally isolated for visual tuning after an in-game screenshot.
+         */
+        poseStack.translate(-0.29F, -0.31F, 0.015F);
         poseStack.mulPose(Axis.YP.rotationDegrees(90.0F));
         poseStack.mulPose(Axis.ZP.rotationDegrees(180.0F));
-        poseStack.scale(0.58F, 0.58F, 0.58F);
+        poseStack.scale(0.46F, 0.46F, 0.46F);
 
         state.bundle.submit(
                 poseStack,
