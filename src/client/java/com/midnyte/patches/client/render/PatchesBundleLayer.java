@@ -36,18 +36,25 @@ public final class PatchesBundleLayer extends RenderLayer<PatchesRenderState, Pa
         poseStack.pushPose();
 
         /*
-         * Anchor to the body model part first. This makes the Bundle inherit
-         * the body's animated position, including the vertical shift used by
-         * the sitting pose, instead of floating in entity-local space.
+         * Anchor to the body model part first so the Bundle follows any body
+         * animation, including Patches' lowered sitting pose.
          */
         this.getParentModel().translateToBody(poseStack);
 
         /*
-         * The body's pivot is at its lower edge, so move upward to the middle
-         * of the torso and outward onto Patches' left flank. These values are
-         * intentionally isolated for visual tuning after an in-game screenshot.
+         * Patches' body uses non-uniform X/Z scaling to preserve his custom
+         * Blockbench proportions while keeping the original texture unwrap.
+         * That scale should affect the attachment point, but not distort the
+         * vanilla Bundle item itself. Cancel it before rendering the item.
          */
-        poseStack.translate(-0.29F, -0.31F, 0.015F);
+        poseStack.scale(7.0F / 7.5F, 1.0F, 3.0F / 4.0F);
+
+        /*
+         * Sit the Bundle close against the left flank and slightly lower than
+         * the previous pass. The bottom of the item should now finish just
+         * above the first visible body pixel rather than hovering outward.
+         */
+        poseStack.translate(-0.245F, -0.255F, 0.015F);
         poseStack.mulPose(Axis.YP.rotationDegrees(90.0F));
         poseStack.mulPose(Axis.ZP.rotationDegrees(180.0F));
         poseStack.scale(0.46F, 0.46F, 0.46F);
