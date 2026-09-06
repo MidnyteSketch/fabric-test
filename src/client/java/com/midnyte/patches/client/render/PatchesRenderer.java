@@ -3,6 +3,7 @@ package com.midnyte.patches.client.render;
 import com.midnyte.patches.PatchesMod;
 import com.midnyte.patches.client.model.ModModelLayers;
 import com.midnyte.patches.client.model.PatchesFaceModel;
+import com.midnyte.patches.client.model.PatchesGogglesModel;
 import com.midnyte.patches.client.model.PatchesModel;
 import com.midnyte.patches.entity.PatchesEntity;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
@@ -23,6 +24,11 @@ public final class PatchesRenderer extends MobRenderer<PatchesEntity, PatchesRen
                 this,
                 new PatchesFaceModel(context.bakeLayer(ModModelLayers.PATCHES_FACE))
         ));
+        this.addLayer(new PatchesGogglesLayer(
+                this,
+                new PatchesGogglesModel(context.bakeLayer(ModModelLayers.PATCHES_GOGGLES_STRAP)),
+                new PatchesGogglesModel(context.bakeLayer(ModModelLayers.PATCHES_GOGGLES))
+        ));
         this.addLayer(new PatchesBundleStrapLayer(this));
         this.addLayer(new PatchesBundleLayer(this));
     }
@@ -37,6 +43,7 @@ public final class PatchesRenderer extends MobRenderer<PatchesEntity, PatchesRen
         super.extractRenderState(entity, state, tickProgress);
         state.mode = entity.getMode();
         state.expression = entity.getExpression();
+        state.hasSpyglass = entity.hasSpyglass();
 
         ItemStack bundle = entity.getBundleStack();
         if (bundle.isEmpty()) {

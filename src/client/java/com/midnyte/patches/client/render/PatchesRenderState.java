@@ -8,5 +8,6 @@ import net.minecraft.client.renderer.item.ItemStackRenderState;
 public final class PatchesRenderState extends LivingEntityRenderState {
     public PatchesMode mode = PatchesMode.WANDERING;
     public PatchesExpression expression = PatchesExpression.DEFAULT;
+    public boolean hasSpyglass;
     public final ItemStackRenderState bundle = new ItemStackRenderState();
 }

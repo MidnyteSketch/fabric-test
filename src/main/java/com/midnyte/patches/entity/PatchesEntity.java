@@ -37,6 +37,9 @@ public final class PatchesEntity extends PathfinderMob {
     private static final EntityDataAccessor<ItemStack> BUNDLE =
             SynchedEntityData.defineId(PatchesEntity.class, EntityDataSerializers.ITEM_STACK);
 
+    private static final EntityDataAccessor<ItemStack> SPYGLASS =
+            SynchedEntityData.defineId(PatchesEntity.class, EntityDataSerializers.ITEM_STACK);
+
     private static final EntityDataAccessor<Integer> EXPRESSION =
             SynchedEntityData.defineId(PatchesEntity.class, EntityDataSerializers.INT);
 
@@ -84,6 +87,7 @@ public final class PatchesEntity extends PathfinderMob {
         super.defineSynchedData(builder);
         builder.define(MODE, PatchesMode.WANDERING.id());
         builder.define(BUNDLE, ItemStack.EMPTY);
+        builder.define(SPYGLASS, ItemStack.EMPTY);
         builder.define(EXPRESSION, PatchesExpression.DEFAULT.id());
     }
 
@@ -132,6 +136,25 @@ public final class PatchesEntity extends PathfinderMob {
 
         this.entityData.set(
                 BUNDLE,
+                stack.isEmpty() ? ItemStack.EMPTY : stack.copyWithCount(1)
+        );
+    }
+
+    public ItemStack getSpyglassStack() {
+        return this.entityData.get(SPYGLASS);
+    }
+
+    public boolean hasSpyglass() {
+        return !getSpyglassStack().isEmpty();
+    }
+
+    private void setSpyglassStack(ItemStack stack) {
+        if (!stack.isEmpty() && !stack.is(Items.SPYGLASS)) {
+            throw new IllegalArgumentException("Patches can only equip a Spyglass in his discovery-tool slot");
+        }
+
+        this.entityData.set(
+                SPYGLASS,
                 stack.isEmpty() ? ItemStack.EMPTY : stack.copyWithCount(1)
         );
     }
@@ -225,17 +248,49 @@ public final class PatchesEntity extends PathfinderMob {
             return InteractionResult.SUCCESS;
         }
 
-        if (stack.isEmpty() && player.isShiftKeyDown() && hasBundle()) {
-            if (!level().isClientSide()) {
-                ItemStack equippedBundle = getBundleStack().copy();
-                setBundleStack(ItemStack.EMPTY);
+        if (stack.is(Items.SPYGLASS)) {
+            if (hasSpyglass()) {
+                return InteractionResult.FAIL;
+            }
 
-                if (!player.addItem(equippedBundle)) {
-                    player.drop(equippedBundle, false);
+            if (!level().isClientSide()) {
+                ItemStack equippedSpyglass = stack.copyWithCount(1);
+                setSpyglassStack(equippedSpyglass);
+
+                if (!player.hasInfiniteMaterials()) {
+                    stack.shrink(1);
                 }
             }
 
             return InteractionResult.SUCCESS;
+        }
+
+        if (stack.isEmpty() && player.isShiftKeyDown()) {
+            if (hasSpyglass()) {
+                if (!level().isClientSide()) {
+                    ItemStack equippedSpyglass = getSpyglassStack().copy();
+                    setSpyglassStack(ItemStack.EMPTY);
+
+                    if (!player.addItem(equippedSpyglass)) {
+                        player.drop(equippedSpyglass, false);
+                    }
+                }
+
+                return InteractionResult.SUCCESS;
+            }
+
+            if (hasBundle()) {
+                if (!level().isClientSide()) {
+                    ItemStack equippedBundle = getBundleStack().copy();
+                    setBundleStack(ItemStack.EMPTY);
+
+                    if (!player.addItem(equippedBundle)) {
+                        player.drop(equippedBundle, false);
+                    }
+                }
+
+                return InteractionResult.SUCCESS;
+            }
         }
 
         if (stack.is(Items.COOKIE)) {
@@ -371,6 +426,11 @@ public final class PatchesEntity extends PathfinderMob {
         if (!bundle.isEmpty()) {
             output.store("PatchesBundle", ItemStack.CODEC, bundle);
         }
+
+        ItemStack spyglass = getSpyglassStack();
+        if (!spyglass.isEmpty()) {
+            output.store("PatchesSpyglass", ItemStack.CODEC, spyglass);
+        }
     }
 
     @Override
@@ -405,6 +465,16 @@ public final class PatchesEntity extends PathfinderMob {
             setBundleStack(savedBundle);
         } else {
             setBundleStack(ItemStack.EMPTY);
+        }
+
+        ItemStack savedSpyglass = input
+                .read("PatchesSpyglass", ItemStack.CODEC)
+                .orElse(ItemStack.EMPTY);
+
+        if (savedSpyglass.isEmpty() || savedSpyglass.is(Items.SPYGLASS)) {
+            setSpyglassStack(savedSpyglass);
+        } else {
+            setSpyglassStack(ItemStack.EMPTY);
         }
 
         expressionOverrideTicks = 0;

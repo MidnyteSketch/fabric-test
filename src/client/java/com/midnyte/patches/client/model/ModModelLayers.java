@@ -18,8 +18,20 @@ public final class ModModelLayers {
             "face"
     );
 
+    public static final ModelLayerLocation PATCHES_GOGGLES_STRAP = new ModelLayerLocation(
+            Identifier.fromNamespaceAndPath(PatchesMod.MOD_ID, "patches"),
+            "goggles_strap"
+    );
+
+    public static final ModelLayerLocation PATCHES_GOGGLES = new ModelLayerLocation(
+            Identifier.fromNamespaceAndPath(PatchesMod.MOD_ID, "patches"),
+            "goggles"
+    );
+
     public static void register() {
         ModelLayerRegistry.registerModelLayer(PATCHES, PatchesModel::createBodyLayer);
         ModelLayerRegistry.registerModelLayer(PATCHES_FACE, PatchesFaceModel::createFaceLayer);
+        ModelLayerRegistry.registerModelLayer(PATCHES_GOGGLES_STRAP, PatchesGogglesModel::createStrapLayer);
+        ModelLayerRegistry.registerModelLayer(PATCHES_GOGGLES, PatchesGogglesModel::createGogglesLayer);
     }
 }
