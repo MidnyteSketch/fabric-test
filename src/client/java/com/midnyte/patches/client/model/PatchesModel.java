@@ -220,12 +220,12 @@ public final class PatchesModel extends EntityModel<PatchesRenderState> {
     }
 
     private void applySittingPose() {
-        // Lower Patches while keeping every leg at its normal, undistorted scale.
-        head.y += 3.25F;
-        body.y += 3.25F;
+        // Lower Patches by 2.25 model pixels: one pixel less than the prior pose.
+        head.y += 2.25F;
+        body.y += 2.25F;
 
         /*
-         * The torso now provides the apparent shortening: the upper portions of
+         * The torso provides the apparent shortening: the upper portions of
          * the full-size legs disappear into the lowered body instead of being
          * vertically squashed. This preserves the original leg texture density.
          */
