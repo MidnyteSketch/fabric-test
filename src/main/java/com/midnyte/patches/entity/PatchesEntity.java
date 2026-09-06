@@ -102,7 +102,7 @@ public final class PatchesEntity extends PathfinderMob {
     }
 
     private void setBundleStack(ItemStack stack) {
-        if (!stack.isEmpty() && !stack.is(Items.BUNDLE)) {
+        if (!stack.isEmpty() && !BundleSupport.isBundle(stack)) {
             throw new IllegalArgumentException("Patches can only equip a Bundle");
         }
 
@@ -149,9 +149,10 @@ public final class PatchesEntity extends PathfinderMob {
         /*
          * Bundle equipment is deliberately separate from Patches' inventory.
          * The exact vanilla ItemStack is stored, including all of its contents
-         * and components, and is returned unchanged when removed.
+         * and components, and is returned unchanged when removed. Every vanilla
+         * dyed Bundle is accepted through the minecraft:bundles item tag.
          */
-        if (stack.is(Items.BUNDLE)) {
+        if (BundleSupport.isBundle(stack)) {
             if (hasBundle()) {
                 return InteractionResult.FAIL;
             }
@@ -347,7 +348,7 @@ public final class PatchesEntity extends PathfinderMob {
                 .read("PatchesBundle", ItemStack.CODEC)
                 .orElse(ItemStack.EMPTY);
 
-        if (savedBundle.isEmpty() || savedBundle.is(Items.BUNDLE)) {
+        if (savedBundle.isEmpty() || BundleSupport.isBundle(savedBundle)) {
             setBundleStack(savedBundle);
         } else {
             setBundleStack(ItemStack.EMPTY);
