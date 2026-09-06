@@ -2,6 +2,7 @@ package com.midnyte.patches.client.render;
 
 import com.midnyte.patches.PatchesMod;
 import com.midnyte.patches.client.model.ModModelLayers;
+import com.midnyte.patches.client.model.PatchesFaceModel;
 import com.midnyte.patches.client.model.PatchesModel;
 import com.midnyte.patches.entity.PatchesEntity;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
@@ -18,7 +19,10 @@ public final class PatchesRenderer extends MobRenderer<PatchesEntity, PatchesRen
 
     public PatchesRenderer(EntityRendererProvider.Context context) {
         super(context, new PatchesModel(context.bakeLayer(ModModelLayers.PATCHES)), 0.32F);
-        this.addLayer(new PatchesFaceLayer(this));
+        this.addLayer(new PatchesFaceLayer(
+                this,
+                new PatchesFaceModel(context.bakeLayer(ModModelLayers.PATCHES_FACE))
+        ));
         this.addLayer(new PatchesBundleStrapLayer(this));
         this.addLayer(new PatchesBundleLayer(this));
     }
