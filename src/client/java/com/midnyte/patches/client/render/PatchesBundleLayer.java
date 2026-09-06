@@ -4,8 +4,8 @@ import com.midnyte.patches.client.model.PatchesModel;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import net.minecraft.client.renderer.SubmitNodeCollector;
+import net.minecraft.client.renderer.entity.RenderLayerParent;
 import net.minecraft.client.renderer.entity.layers.RenderLayer;
-import net.minecraft.client.renderer.entity.layers.RenderLayerParent;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 
 /**
