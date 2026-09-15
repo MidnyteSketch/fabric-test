@@ -19,6 +19,7 @@ import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.goal.RandomStrollGoal;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -100,11 +101,7 @@ public final class PatchesEntity extends PathfinderMob {
 
         if (mode == PatchesMode.SITTING) {
             this.getNavigation().stop();
-            this.setDeltaMovement(
-                    0.0,
-                    this.getDeltaMovement().y,
-                    0.0
-            );
+            this.setDeltaMovement(0.0, this.getDeltaMovement().y, 0.0);
         }
     }
 
@@ -133,11 +130,7 @@ public final class PatchesEntity extends PathfinderMob {
         if (!stack.isEmpty() && !BundleSupport.isBundle(stack)) {
             throw new IllegalArgumentException("Patches can only equip a Bundle");
         }
-
-        this.entityData.set(
-                BUNDLE,
-                stack.isEmpty() ? ItemStack.EMPTY : stack.copyWithCount(1)
-        );
+        this.entityData.set(BUNDLE, stack.isEmpty() ? ItemStack.EMPTY : stack.copyWithCount(1));
     }
 
     public ItemStack getSpyglassStack() {
@@ -152,22 +145,16 @@ public final class PatchesEntity extends PathfinderMob {
         if (!stack.isEmpty() && !stack.is(Items.SPYGLASS)) {
             throw new IllegalArgumentException("Patches can only equip a Spyglass in his discovery-tool slot");
         }
-
-        this.entityData.set(
-                SPYGLASS,
-                stack.isEmpty() ? ItemStack.EMPTY : stack.copyWithCount(1)
-        );
+        this.entityData.set(SPYGLASS, stack.isEmpty() ? ItemStack.EMPTY : stack.copyWithCount(1));
     }
 
     public @Nullable Player getFollowingPlayer() {
         if (followingPlayerUuid == null) {
             return null;
         }
-
         if (!(level() instanceof ServerLevel serverLevel)) {
             return null;
         }
-
         return serverLevel.getPlayerByUUID(followingPlayerUuid);
     }
 
@@ -178,17 +165,11 @@ public final class PatchesEntity extends PathfinderMob {
     @Override
     public void tick() {
         super.tick();
-
         if (!level().isClientSide()) {
             if (getMode() == PatchesMode.SITTING) {
                 this.getNavigation().stop();
-                this.setDeltaMovement(
-                        0.0,
-                        this.getDeltaMovement().y,
-                        0.0
-                );
+                this.setDeltaMovement(0.0, this.getDeltaMovement().y, 0.0);
             }
-
             updateExpression();
         }
     }
@@ -198,18 +179,15 @@ public final class PatchesEntity extends PathfinderMob {
             expressionOverrideTicks--;
             return;
         }
-
         if (getMode() == PatchesMode.SITTING) {
             setExpression(PatchesExpression.RESTING);
             return;
         }
-
         Player temptingPlayer = level().getNearestPlayer(this, COOKIE_NOTICE_RANGE);
         if (temptingPlayer != null && playerIsHoldingCookie(temptingPlayer)) {
             setExpression(PatchesExpression.SURPRISED);
             return;
         }
-
         setExpression(PatchesExpression.DEFAULT);
     }
 
@@ -235,16 +213,12 @@ public final class PatchesEntity extends PathfinderMob {
             if (hasBundle()) {
                 return InteractionResult.FAIL;
             }
-
             if (!level().isClientSide()) {
-                ItemStack equippedBundle = stack.copyWithCount(1);
-                setBundleStack(equippedBundle);
-
+                setBundleStack(stack.copyWithCount(1));
                 if (!player.hasInfiniteMaterials()) {
                     stack.shrink(1);
                 }
             }
-
             return InteractionResult.SUCCESS;
         }
 
@@ -252,16 +226,12 @@ public final class PatchesEntity extends PathfinderMob {
             if (hasSpyglass()) {
                 return InteractionResult.FAIL;
             }
-
             if (!level().isClientSide()) {
-                ItemStack equippedSpyglass = stack.copyWithCount(1);
-                setSpyglassStack(equippedSpyglass);
-
+                setSpyglassStack(stack.copyWithCount(1));
                 if (!player.hasInfiniteMaterials()) {
                     stack.shrink(1);
                 }
             }
-
             return InteractionResult.SUCCESS;
         }
 
@@ -270,12 +240,8 @@ public final class PatchesEntity extends PathfinderMob {
                 if (!level().isClientSide()) {
                     ItemStack equippedSpyglass = getSpyglassStack().copy();
                     setSpyglassStack(ItemStack.EMPTY);
-
-                    if (!player.addItem(equippedSpyglass)) {
-                        player.drop(equippedSpyglass, false);
-                    }
+                    returnOrDrop(player, equippedSpyglass);
                 }
-
                 return InteractionResult.SUCCESS;
             }
 
@@ -283,12 +249,8 @@ public final class PatchesEntity extends PathfinderMob {
                 if (!level().isClientSide()) {
                     ItemStack equippedBundle = getBundleStack().copy();
                     setBundleStack(ItemStack.EMPTY);
-
-                    if (!player.addItem(equippedBundle)) {
-                        player.drop(equippedBundle, false);
-                    }
+                    returnOrDrop(player, equippedBundle);
                 }
-
                 return InteractionResult.SUCCESS;
             }
         }
@@ -296,24 +258,16 @@ public final class PatchesEntity extends PathfinderMob {
         if (stack.is(Items.COOKIE)) {
             if (!level().isClientSide()) {
                 setFollowingPlayer(player);
-
                 if (getMode() == PatchesMode.WANDERING) {
                     setMode(PatchesMode.FOLLOWING);
                 } else if (getMode() == PatchesMode.FOLLOWING) {
                     setMode(PatchesMode.WANDERING);
                 }
-
                 heal(2.0F);
                 consumeOne(player, stack);
                 setTimedExpression(PatchesExpression.LAUGH, COOKIE_LAUGH_TICKS);
-
-                playSound(
-                        SoundEvents.GENERIC_EAT.value(),
-                        0.7F,
-                        1.15F
-                );
+                playSound(SoundEvents.GENERIC_EAT.value(), 0.7F, 1.15F);
             }
-
             return InteractionResult.SUCCESS;
         }
 
@@ -326,14 +280,12 @@ public final class PatchesEntity extends PathfinderMob {
                     setMode(PatchesMode.SITTING);
                 }
             }
-
             return InteractionResult.SUCCESS;
         }
 
         if (isLikedFood(stack) && getHealth() < getMaxHealth()) {
             if (!level().isClientSide()) {
                 float healing;
-
                 if (stack.is(Items.MUSHROOM_STEW)) {
                     healing = 6.0F;
                 } else if (stack.is(Items.APPLE)) {
@@ -343,27 +295,16 @@ public final class PatchesEntity extends PathfinderMob {
                 }
 
                 heal(healing);
-
                 boolean stew = stack.is(Items.MUSHROOM_STEW);
-
                 consumeOne(player, stack);
                 setTimedExpression(PatchesExpression.MOUTH_OPEN, OTHER_FOOD_TICKS);
 
                 if (stew && !player.hasInfiniteMaterials()) {
-                    ItemStack bowl = new ItemStack(Items.BOWL);
-
-                    if (!player.addItem(bowl)) {
-                        player.drop(bowl, false);
-                    }
+                    returnOrDrop(player, new ItemStack(Items.BOWL));
                 }
 
-                playSound(
-                        SoundEvents.GENERIC_EAT.value(),
-                        0.7F,
-                        1.05F
-                );
+                playSound(SoundEvents.GENERIC_EAT.value(), 0.7F, 1.05F);
             }
-
             return InteractionResult.SUCCESS;
         }
 
@@ -372,6 +313,22 @@ public final class PatchesEntity extends PathfinderMob {
         }
 
         return super.mobInteract(player, hand);
+    }
+
+    private void returnOrDrop(Player player, ItemStack stack) {
+        if (player.addItem(stack)) {
+            return;
+        }
+
+        ItemEntity dropped = new ItemEntity(
+                level(),
+                player.getX(),
+                player.getY() + 0.5,
+                player.getZ(),
+                stack
+        );
+        dropped.setDefaultPickUpDelay();
+        level().addFreshEntity(dropped);
     }
 
     private static boolean isLikedFood(ItemStack stack) {
@@ -405,22 +362,9 @@ public final class PatchesEntity extends PathfinderMob {
     @Override
     protected void addAdditionalSaveData(ValueOutput output) {
         super.addAdditionalSaveData(output);
-
-        output.putInt(
-                "PatchesMode",
-                getMode().id()
-        );
-
-        output.putInt(
-                "PatchesModeBeforeSitting",
-                modeBeforeSitting.id()
-        );
-
-        output.storeNullable(
-                "PatchesFollowingPlayer",
-                UUIDUtil.CODEC,
-                followingPlayerUuid
-        );
+        output.putInt("PatchesMode", getMode().id());
+        output.putInt("PatchesModeBeforeSitting", modeBeforeSitting.id());
+        output.storeNullable("PatchesFollowingPlayer", UUIDUtil.CODEC, followingPlayerUuid);
 
         ItemStack bundle = getBundleStack();
         if (!bundle.isEmpty()) {
@@ -437,40 +381,21 @@ public final class PatchesEntity extends PathfinderMob {
     protected void readAdditionalSaveData(ValueInput input) {
         super.readAdditionalSaveData(input);
 
-        setMode(
-                PatchesMode.fromId(
-                        input.getIntOr(
-                                "PatchesMode",
-                                PatchesMode.WANDERING.id()
-                        )
-                )
-        );
-
+        setMode(PatchesMode.fromId(input.getIntOr("PatchesMode", PatchesMode.WANDERING.id())));
         modeBeforeSitting = PatchesMode.fromId(
-                input.getIntOr(
-                        "PatchesModeBeforeSitting",
-                        PatchesMode.WANDERING.id()
-                )
+                input.getIntOr("PatchesModeBeforeSitting", PatchesMode.WANDERING.id())
         );
 
-        followingPlayerUuid = input
-                .read("PatchesFollowingPlayer", UUIDUtil.CODEC)
-                .orElse(null);
+        followingPlayerUuid = input.read("PatchesFollowingPlayer", UUIDUtil.CODEC).orElse(null);
 
-        ItemStack savedBundle = input
-                .read("PatchesBundle", ItemStack.CODEC)
-                .orElse(ItemStack.EMPTY);
-
+        ItemStack savedBundle = input.read("PatchesBundle", ItemStack.CODEC).orElse(ItemStack.EMPTY);
         if (savedBundle.isEmpty() || BundleSupport.isBundle(savedBundle)) {
             setBundleStack(savedBundle);
         } else {
             setBundleStack(ItemStack.EMPTY);
         }
 
-        ItemStack savedSpyglass = input
-                .read("PatchesSpyglass", ItemStack.CODEC)
-                .orElse(ItemStack.EMPTY);
-
+        ItemStack savedSpyglass = input.read("PatchesSpyglass", ItemStack.CODEC).orElse(ItemStack.EMPTY);
         if (savedSpyglass.isEmpty() || savedSpyglass.is(Items.SPYGLASS)) {
             setSpyglassStack(savedSpyglass);
         } else {
