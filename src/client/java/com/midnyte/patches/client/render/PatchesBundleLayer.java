@@ -2,11 +2,11 @@ package com.midnyte.patches.client.render;
 
 import com.midnyte.patches.client.model.PatchesModel;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.math.Axis;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.RenderLayerParent;
 import net.minecraft.client.renderer.entity.layers.RenderLayer;
 import net.minecraft.client.renderer.texture.OverlayTexture;
+import org.joml.Matrix4f;
 
 /**
  * Renders Patches' equipped vanilla Bundle on the left side of his torso.
@@ -53,10 +53,16 @@ public final class PatchesBundleLayer extends RenderLayer<PatchesRenderState, Pa
          * Sit the Bundle close against the left flank and slightly lower than
          * the previous pass. The bottom of the item should now finish just
          * above the first visible body pixel rather than hovering outward.
+         *
+         * Minecraft 26.3's PoseStack no longer accepts Quaternionf directly,
+         * so compose the same Y-then-Z rotations into a Matrix4f.
          */
         poseStack.translate(-0.245F, -0.255F, 0.015F);
-        poseStack.mulPose(Axis.YP.rotationDegrees(90.0F));
-        poseStack.mulPose(Axis.ZP.rotationDegrees(180.0F));
+        poseStack.mulPose(
+                new Matrix4f()
+                        .rotateY((float) Math.toRadians(90.0F))
+                        .rotateZ((float) Math.toRadians(180.0F))
+        );
         poseStack.scale(0.46F, 0.46F, 0.46F);
 
         state.bundle.submit(
