@@ -206,6 +206,29 @@ public final class PatchesEntity extends PathfinderMob {
     }
 
     @Override
+    protected void dropCustomDeathLoot(ServerLevel level, DamageSource source, boolean killedByPlayer) {
+        super.dropCustomDeathLoot(level, source, killedByPlayer);
+
+        ItemStack bundle = getBundleStack().copy();
+        if (!bundle.isEmpty()) {
+            setBundleStack(ItemStack.EMPTY);
+            spawnEquippedDrop(level, bundle);
+        }
+
+        ItemStack spyglass = getSpyglassStack().copy();
+        if (!spyglass.isEmpty()) {
+            setSpyglassStack(ItemStack.EMPTY);
+            spawnEquippedDrop(level, spyglass);
+        }
+    }
+
+    private void spawnEquippedDrop(ServerLevel level, ItemStack stack) {
+        ItemEntity dropped = new ItemEntity(level, getX(), getY() + 0.5, getZ(), stack);
+        dropped.setDefaultPickUpDelay();
+        level.addFreshEntity(dropped);
+    }
+
+    @Override
     protected InteractionResult mobInteract(Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
 
