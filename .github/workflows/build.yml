@@ -26,10 +26,14 @@ jobs:
       - name: Build Patches
         run: gradle build
 
+      - name: Name playable JAR for this build
+        if: success()
+        run: cp build/libs/patches-0.1.0-test1.jar build/libs/patches-0.1.0-test1-build${{ github.run_number }}.jar
+
       - name: Upload playable Patches JAR
         if: success()
         uses: actions/upload-artifact@v7
         with:
-          name: patches-0.1.0-test1.jar
-          path: build/libs/patches-0.1.0-test1.jar
+          name: patches-0.1.0-test1-build${{ github.run_number }}.jar
+          path: build/libs/patches-0.1.0-test1-build${{ github.run_number }}.jar
           archive: false
