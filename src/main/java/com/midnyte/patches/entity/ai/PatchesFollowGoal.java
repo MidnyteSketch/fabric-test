@@ -23,9 +23,7 @@ public final class PatchesFollowGoal extends Goal {
 
     private static final double WALKING_AWAY_RATE = 0.035;
     private static final double SPRINTING_AWAY_RATE = 0.09;
-    private static final double TOWARD_RATE = -0.03;
 
-    private static final double RELAXED_SPEED = 0.95;
     private static final double CATCH_UP_SPEED = 1.15;
     private static final double HURRY_SPEED = 1.35;
 
@@ -92,7 +90,7 @@ public final class PatchesFollowGoal extends Goal {
 
         if (desired != urgency) {
             urgency = desired;
-            reportState(reasonFor(desired, distance, separationRate), distance, separationRate);
+            reportState(reasonFor(desired, separationRate), distance, separationRate);
         }
 
         if (urgency == PatchesFollowUrgency.WARP) {
@@ -174,13 +172,7 @@ public final class PatchesFollowGoal extends Goal {
         Vec3 movement = player.getDeltaMovement();
         double awayX = -toPlayer.x / horizontalDistance;
         double awayZ = -toPlayer.z / horizontalDistance;
-        double signedRate = movement.x * awayX + movement.z * awayZ;
-
-        if (signedRate <= TOWARD_RATE) {
-            return signedRate;
-        }
-
-        return signedRate;
+        return movement.x * awayX + movement.z * awayZ;
     }
 
     private void updateProgress(double distance) {
@@ -217,7 +209,7 @@ public final class PatchesFollowGoal extends Goal {
             double y = baseY;
             double z = baseZ + offset[2] + 0.5;
 
-            if (patches.randomTeleport(x, y, z, true)) {
+            if (patches.randomTeleport(x, y, z, true, state -> true)) {
                 patches.getNavigation().stop();
                 return true;
             }
@@ -230,7 +222,7 @@ public final class PatchesFollowGoal extends Goal {
         return player == null ? 0.0 : patches.distanceTo(player);
     }
 
-    private String reasonFor(PatchesFollowUrgency state, double distance, double separationRate) {
+    private String reasonFor(PatchesFollowUrgency state, double separationRate) {
         return switch (state) {
             case RELAXED -> separationRate < 0.0
                     ? "Player approaching; no need to chase."
