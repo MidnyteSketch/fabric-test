@@ -25,7 +25,6 @@ public final class PatchesFollowGoal extends Goal {
 
     private static final double WALKING_AWAY_RATE = 0.035;
     private static final double TOWARD_RATE = -0.02;
-    private static final double SPRINTING_AWAY_RATE = 0.09;
     private static final double ATTENTIVE_DISTANCE_CHANGE_EPSILON = 0.025;
     private static final int ATTENTIVE_PATIENCE_TICKS = 100;
 
@@ -63,7 +62,15 @@ public final class PatchesFollowGoal extends Goal {
 
         double distance = patches.distanceTo(candidate);
         double separationRate = getSeparationRate(candidate);
-        if (distance < RELAXED_DISTANCE || (distance < ATTENTIVE_DISTANCE && separationRate <= 0.0)) {
+
+        // Distance alone can force a real catch-up once Patches has wandered
+        // far enough away, but Attentive is specifically a reaction to the
+        // PLAYER beginning to leave. Patches wandering away from a stationary
+        // player must not repeatedly make himself Attentive.
+        if (distance < CATCH_UP_DISTANCE && separationRate < WALKING_AWAY_RATE) {
+            return false;
+        }
+        if (distance < RELAXED_DISTANCE) {
             return false;
         }
 
@@ -203,14 +210,14 @@ public final class PatchesFollowGoal extends Goal {
         lastAttentiveDistance = distance;
 
         if (distanceChange > ATTENTIVE_DISTANCE_CHANGE_EPSILON) {
-            // The player really is continuing to leave, so Patches remains
-            // interested and the five-second patience window starts fresh.
             attentiveIdleTicks = 0;
             return;
         }
 
         // Standing still, circling at roughly the same radius, or moving back
-        // toward Patches all count as "not actually leaving".
+        // toward Patches all count as "not actually leaving". Attentive stays
+        // visually stable during this period instead of immediately reporting
+        // Relaxed merely because the player took one step back toward him.
         attentiveIdleTicks++;
         if (attentiveIdleTicks >= ATTENTIVE_PATIENCE_TICKS) {
             attentiveTimedOut = true;
@@ -237,6 +244,20 @@ public final class PatchesFollowGoal extends Goal {
             return PatchesFollowUrgency.CATCH_UP;
         }
 
+        // Once Attentive has begun, keep the readable "are we going?" beat
+        // intact until its patience timer expires, the player comes back inside
+        // the relaxed radius, or distance escalates enough to require Catch Up.
+        if (urgency == PatchesFollowUrgency.ATTENTIVE) {
+            if (distance >= CATCH_UP_DISTANCE) {
+                catchUpCommitted = true;
+                return PatchesFollowUrgency.CATCH_UP;
+            }
+            if (distance >= RELAXED_DISTANCE) {
+                return PatchesFollowUrgency.ATTENTIVE;
+            }
+            return PatchesFollowUrgency.RELAXED;
+        }
+
         PatchesFollowUrgency state = determineUncommittedUrgency(distance, separationRate);
         if (state == PatchesFollowUrgency.CATCH_UP
                 || state == PatchesFollowUrgency.HURRY
@@ -249,16 +270,15 @@ public final class PatchesFollowGoal extends Goal {
     private PatchesFollowUrgency determineUncommittedUrgency(double distance, double separationRate) {
         if (distance >= WARP_DISTANCE) return PatchesFollowUrgency.WARP;
         if (distance >= HURRY_DISTANCE) return PatchesFollowUrgency.HURRY;
-
-        if (separationRate <= TOWARD_RATE) {
-            return distance >= RELAXED_DISTANCE ? PatchesFollowUrgency.ATTENTIVE : PatchesFollowUrgency.RELAXED;
-        }
-
         if (distance >= CATCH_UP_DISTANCE) return PatchesFollowUrgency.CATCH_UP;
-        if (distance >= ATTENTIVE_DISTANCE
-                || (distance >= RELAXED_DISTANCE && separationRate >= WALKING_AWAY_RATE)) {
+
+        // Below Catch Up distance, player motion is what creates Attentive.
+        // Merely finding Patches at 9+ blocks because HE wandered there does
+        // not count as evidence that the player intends to leave.
+        if (distance >= RELAXED_DISTANCE && separationRate >= WALKING_AWAY_RATE) {
             return PatchesFollowUrgency.ATTENTIVE;
         }
+
         return PatchesFollowUrgency.RELAXED;
     }
 
@@ -350,12 +370,8 @@ public final class PatchesFollowGoal extends Goal {
 
     private String reasonFor(PatchesFollowUrgency state, double separationRate) {
         return switch (state) {
-            case RELAXED -> separationRate < 0.0
-                    ? "Player approaching; no need to chase."
-                    : "Player nearby; free to wander.";
-            case ATTENTIVE -> separationRate < 0.0
-                    ? "Player is coming back; watching without chasing."
-                    : "Player may be leaving; watching to see what they do.";
+            case RELAXED -> "Player nearby; free to wander.";
+            case ATTENTIVE -> "Player may be leaving; watching to see what they do.";
             case CATCH_UP -> "Committed to rejoining player.";
             case HURRY -> "Player is well ahead; hurrying to rejoin.";
             case WARP -> "Player too distant; using emergency warp.";
