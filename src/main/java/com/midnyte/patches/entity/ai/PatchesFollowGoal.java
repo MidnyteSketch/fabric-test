@@ -2,9 +2,11 @@ package com.midnyte.patches.entity.ai;
 
 import com.midnyte.patches.entity.PatchesEntity;
 import com.midnyte.patches.entity.PatchesMode;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.EnumSet;
@@ -16,13 +18,10 @@ public final class PatchesFollowGoal extends Goal {
     private static final double ATTENTIVE_DISTANCE = 9.0;
     private static final double CATCH_UP_DISTANCE = 12.0;
     private static final double HURRY_DISTANCE = 16.0;
-    private static final double WARP_DISTANCE = 24.0;
+    private static final double WARP_DISTANCE = 25.0;
 
-    // Once Patches commits to catching up, come properly back to the player
-    // before releasing the follow goal. This is deliberately much closer than
-    // the distance at which he first becomes concerned.
     private static final double FOLLOW_RELEASE_DISTANCE = 3.0;
-    private static final double HURRY_RELEASE_DISTANCE = 9.0;
+    private static final double HURRY_RELEASE_DISTANCE = 12.0;
 
     private static final double WALKING_AWAY_RATE = 0.035;
     private static final double SPRINTING_AWAY_RATE = 0.09;
@@ -31,8 +30,10 @@ public final class PatchesFollowGoal extends Goal {
     private static final double HURRY_SPEED = 1.35;
 
     private static final int PATH_RECALC_TICKS = 10;
-    private static final int NO_PROGRESS_LIMIT = 4;
+    private static final int NO_PROGRESS_LIMIT = 6;
     private static final double MIN_PROGRESS_PER_CHECK = 0.20;
+    private static final double PATH_FAILURE_WARP_DISTANCE = 10.0;
+    private static final int WARP_GROUND_SEARCH_DEPTH = 12;
 
     private final PatchesEntity patches;
     private Player player;
@@ -56,10 +57,10 @@ public final class PatchesFollowGoal extends Goal {
         double distance = patches.distanceTo(candidate);
         double separationRate = getSeparationRate(candidate);
 
-        // Do not occupy MOVE/LOOK while Follow is relaxed. This is important:
-        // RandomStrollGoal and the ordinary look goals are then free to give
-        // Patches his normal idle wandering around the nearby player.
-        if (distance < RELAXED_DISTANCE && separationRate < WALKING_AWAY_RATE) {
+        // Keep MOVE/LOOK free during ordinary relaxed following. Attentive is
+        // allowed to engage before catch-up so Patches can visibly notice the
+        // player leaving without immediately chasing at six blocks.
+        if (distance < RELAXED_DISTANCE || (distance < ATTENTIVE_DISTANCE && separationRate <= 0.0)) {
             return false;
         }
 
@@ -76,8 +77,12 @@ public final class PatchesFollowGoal extends Goal {
             return false;
         }
 
-        // Hysteresis: after Follow actually engages, stay committed until
-        // Patches has returned to a comfortable close distance.
+        // Once actual catch-up begins, stay committed until Patches is close.
+        // Attentive itself is not a catch-up commitment and may release if the
+        // player stops leaving before Patches needs to chase.
+        if (urgency == PatchesFollowUrgency.ATTENTIVE) {
+            return distanceToPlayer() >= RELAXED_DISTANCE;
+        }
         return distanceToPlayer() > FOLLOW_RELEASE_DISTANCE;
     }
 
@@ -117,9 +122,6 @@ public final class PatchesFollowGoal extends Goal {
         }
 
         if (urgency == PatchesFollowUrgency.WARP) {
-            // Stay in WARP until a teleport actually succeeds. Previously a
-            // failed attempt could immediately fall back to HURRY and produce
-            // noisy Hurry/Warp oscillation while the player kept moving.
             if (tryWarpNearPlayer()) {
                 failedProgressChecks = 0;
                 lastProgressDistance = distanceToPlayer();
@@ -137,9 +139,6 @@ public final class PatchesFollowGoal extends Goal {
             return;
         }
 
-        // If hysteresis is keeping the goal alive below the normal trigger,
-        // continue the committed catch-up rather than becoming inert at six
-        // blocks. The goal will release at FOLLOW_RELEASE_DISTANCE.
         if (urgency == PatchesFollowUrgency.RELAXED) {
             urgency = PatchesFollowUrgency.CATCH_UP;
         }
@@ -156,16 +155,17 @@ public final class PatchesFollowGoal extends Goal {
                 updateProgress(distance);
             }
 
-            if (distance >= HURRY_DISTANCE && failedProgressChecks >= NO_PROGRESS_LIMIT) {
+            // Path failure is an independent reason to warp. It does not need
+            // to wait for the 25-block emergency-distance threshold, but it
+            // does require repeated failure while meaningfully separated.
+            if (distance >= PATH_FAILURE_WARP_DISTANCE && failedProgressChecks >= NO_PROGRESS_LIMIT) {
                 urgency = PatchesFollowUrgency.WARP;
-                reportState("Path recovery failed; using emergency warp.", distance, separationRate);
+                reportState("Unable to make pathing progress; using recovery warp.", distance, separationRate);
             }
         }
     }
 
     private PatchesFollowUrgency determineUrgency(double distance, double separationRate) {
-        // Warp is sticky while the goal is active. It should only end when the
-        // teleport succeeds or the Follow goal itself ends.
         if (urgency == PatchesFollowUrgency.WARP) {
             return PatchesFollowUrgency.WARP;
         }
@@ -179,21 +179,23 @@ public final class PatchesFollowGoal extends Goal {
         }
 
         if (urgency == PatchesFollowUrgency.CATCH_UP && distance > FOLLOW_RELEASE_DISTANCE) {
-            if (distance >= HURRY_DISTANCE || separationRate >= SPRINTING_AWAY_RATE) {
+            if (distance >= HURRY_DISTANCE || (distance >= CATCH_UP_DISTANCE && separationRate >= SPRINTING_AWAY_RATE)) {
                 return PatchesFollowUrgency.HURRY;
             }
             return PatchesFollowUrgency.CATCH_UP;
         }
 
-        if (distance >= HURRY_DISTANCE || (distance >= ATTENTIVE_DISTANCE && separationRate >= SPRINTING_AWAY_RATE)) {
+        if (distance >= HURRY_DISTANCE || (distance >= CATCH_UP_DISTANCE && separationRate >= SPRINTING_AWAY_RATE)) {
             return PatchesFollowUrgency.HURRY;
         }
 
-        if (distance >= CATCH_UP_DISTANCE || (distance >= RELAXED_DISTANCE && separationRate >= WALKING_AWAY_RATE)) {
+        // Distance, not ordinary walking speed, is what advances Attentive to
+        // Catch Up. This gives the notice state a real 6-12 block window.
+        if (distance >= CATCH_UP_DISTANCE) {
             return PatchesFollowUrgency.CATCH_UP;
         }
 
-        if (distance >= ATTENTIVE_DISTANCE || (distance >= RELAXED_DISTANCE && separationRate > 0.0)) {
+        if (distance >= ATTENTIVE_DISTANCE || (distance >= RELAXED_DISTANCE && separationRate >= WALKING_AWAY_RATE)) {
             return PatchesFollowUrgency.ATTENTIVE;
         }
 
@@ -243,33 +245,45 @@ public final class PatchesFollowGoal extends Goal {
                 {2, 2}, {2, -2}, {-2, 2}, {-2, -2},
                 {1, 0}, {-1, 0}, {0, 1}, {0, -1}
         };
-        int[] verticalOffsets = {0, 1, -1, 2, -2};
 
-        // randomTeleport performs Minecraft's own collision/landing checks.
-        // Try a small vertical range as well as horizontal offsets because the
-        // player may have arrived on stairs, slopes, ledges, or after a large
-        // vertical displacement.
-        for (int yOffset : verticalOffsets) {
-            for (int[] offset : horizontalOffsets) {
-                double x = baseX + offset[0] + 0.5;
-                double y = baseY + yOffset;
-                double z = baseZ + offset[1] + 0.5;
+        for (int[] offset : horizontalOffsets) {
+            BlockPos landing = findGroundedLanding(baseX + offset[0], baseY, baseZ + offset[1]);
+            if (landing == null) continue;
 
-                if (patches.randomTeleport(x, y, z, true, state -> true)) {
-                    patches.getNavigation().stop();
-                    return true;
-                }
+            double x = landing.getX() + 0.5;
+            double y = landing.getY();
+            double z = landing.getZ() + 0.5;
+            if (patches.randomTeleport(x, y, z, true, state -> true)) {
+                patches.getNavigation().stop();
+                patches.setDeltaMovement(Vec3.ZERO);
+                return true;
             }
         }
 
-        // The checked attempts above can all fail in cramped or unusual
-        // terrain. For Follow recovery, prefer rejoining Patches to leaving him
-        // permanently stranded: use a conservative one-block offset as the
-        // final fallback. The next normal movement tick can resolve the exact
-        // standing position.
-        patches.teleportTo(player.getX() + 1.0, player.getY(), player.getZ());
-        patches.getNavigation().stop();
-        return patches.distanceTo(player) < 4.0F;
+        // No safe grounded landing near the player means no warp this tick.
+        // In particular, a creative/flying player cannot drag Patches into
+        // mid-air and make him fall to his death.
+        return false;
+    }
+
+    private BlockPos findGroundedLanding(int x, int startY, int z) {
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos(x, startY, z);
+
+        for (int depth = 0; depth <= WARP_GROUND_SEARCH_DEPTH; depth++) {
+            int y = startY - depth;
+            cursor.set(x, y, z);
+            BlockState feet = patches.level().getBlockState(cursor);
+            BlockState head = patches.level().getBlockState(cursor.above());
+            BlockState below = patches.level().getBlockState(cursor.below());
+
+            if (feet.getCollisionShape(patches.level(), cursor).isEmpty()
+                    && head.getCollisionShape(patches.level(), cursor.above()).isEmpty()
+                    && !below.getCollisionShape(patches.level(), cursor.below()).isEmpty()) {
+                return cursor.immutable();
+            }
+        }
+
+        return null;
     }
 
     private double distanceToPlayer() {
@@ -281,9 +295,9 @@ public final class PatchesFollowGoal extends Goal {
             case RELAXED -> separationRate < 0.0
                     ? "Player approaching; no need to chase."
                     : "Player nearby; free to wander.";
-            case ATTENTIVE -> "Player drifting away; staying aware.";
-            case CATCH_UP -> "Player moving away; catching up.";
-            case HURRY -> "Player rapidly getting farther away; hurrying.";
+            case ATTENTIVE -> "Player is leaving; watching before committing to chase.";
+            case CATCH_UP -> "Player is getting away; catching up.";
+            case HURRY -> "Player is well ahead; hurrying to rejoin.";
             case WARP -> "Player too distant; using emergency warp.";
         };
     }
