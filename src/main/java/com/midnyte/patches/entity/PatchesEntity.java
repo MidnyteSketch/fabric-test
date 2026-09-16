@@ -68,7 +68,7 @@ public final class PatchesEntity extends PathfinderMob {
     @Override
     protected void registerGoals() {
         this.goalSelector.addGoal(0, new FloatGoal(this));
-        this.goalSelector.addGoal(1, new PatchesFollowGoal(this, 1.15, 4.0F, 2.5F));
+        this.goalSelector.addGoal(1, new PatchesFollowGoal(this));
         this.goalSelector.addGoal(
                 2,
                 new PatchesTemptGoal(
