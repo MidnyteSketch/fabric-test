@@ -24,6 +24,7 @@ public final class PatchesFollowGoal extends Goal {
     private static final double HURRY_RELEASE_DISTANCE = 12.0;
 
     private static final double WALKING_AWAY_RATE = 0.035;
+    private static final double TOWARD_RATE = -0.02;
     private static final double SPRINTING_AWAY_RATE = 0.09;
 
     private static final double CATCH_UP_SPEED = 1.15;
@@ -41,6 +42,7 @@ public final class PatchesFollowGoal extends Goal {
     private int failedProgressChecks;
     private double lastProgressDistance = Double.NaN;
     private PatchesFollowUrgency urgency = PatchesFollowUrgency.RELAXED;
+    private boolean catchUpCommitted;
 
     public PatchesFollowGoal(PatchesEntity patches) {
         this.patches = patches;
@@ -73,10 +75,11 @@ public final class PatchesFollowGoal extends Goal {
             return false;
         }
 
-        if (urgency == PatchesFollowUrgency.ATTENTIVE) {
-            return distanceToPlayer() >= RELAXED_DISTANCE;
+        if (catchUpCommitted) {
+            return distanceToPlayer() > FOLLOW_RELEASE_DISTANCE;
         }
-        return distanceToPlayer() > FOLLOW_RELEASE_DISTANCE;
+
+        return urgency == PatchesFollowUrgency.ATTENTIVE && distanceToPlayer() >= RELAXED_DISTANCE;
     }
 
     @Override
@@ -84,7 +87,13 @@ public final class PatchesFollowGoal extends Goal {
         recalcTicks = 0;
         failedProgressChecks = 0;
         lastProgressDistance = Double.NaN;
-        urgency = determineUrgency(distanceToPlayer(), getSeparationRate());
+        catchUpCommitted = false;
+        urgency = determineUncommittedUrgency(distanceToPlayer(), getSeparationRate());
+        if (urgency == PatchesFollowUrgency.CATCH_UP
+                || urgency == PatchesFollowUrgency.HURRY
+                || urgency == PatchesFollowUrgency.WARP) {
+            catchUpCommitted = true;
+        }
         reportState(reasonFor(urgency, getSeparationRate()), distanceToPlayer(), getSeparationRate());
     }
 
@@ -98,6 +107,7 @@ public final class PatchesFollowGoal extends Goal {
         patches.getNavigation().stop();
         failedProgressChecks = 0;
         lastProgressDistance = Double.NaN;
+        catchUpCommitted = false;
         urgency = PatchesFollowUrgency.RELAXED;
     }
 
@@ -118,22 +128,20 @@ public final class PatchesFollowGoal extends Goal {
             if (tryWarpNearPlayer()) {
                 failedProgressChecks = 0;
                 lastProgressDistance = distanceToPlayer();
-                reportState("Emergency warp succeeded; rejoined player.", distanceToPlayer(), 0.0);
+                catchUpCommitted = true;
+                urgency = PatchesFollowUrgency.CATCH_UP;
+                reportState("Emergency warp succeeded; finishing rejoin.", distanceToPlayer(), 0.0);
             }
             return;
         }
 
         patches.getLookControl().setLookAt(player, 10.0F, patches.getMaxHeadXRot());
 
-        if (urgency == PatchesFollowUrgency.ATTENTIVE) {
+        if (urgency == PatchesFollowUrgency.ATTENTIVE && !catchUpCommitted) {
             patches.getNavigation().stop();
             failedProgressChecks = 0;
             lastProgressDistance = distance;
             return;
-        }
-
-        if (urgency == PatchesFollowUrgency.RELAXED) {
-            urgency = PatchesFollowUrgency.CATCH_UP;
         }
 
         if (--recalcTicks <= 0) {
@@ -143,9 +151,6 @@ public final class PatchesFollowGoal extends Goal {
             boolean pathStarted = patches.getNavigation().moveTo(player, speed);
 
             if (!pathStarted) {
-                // A rejected moveTo call by itself is not proof that Patches is
-                // stuck. Navigation can already have a useful path, and moving
-                // targets can make individual recalculations fail transiently.
                 if (patches.getNavigation().isDone()) {
                     failedProgressChecks++;
                 }
@@ -153,14 +158,10 @@ public final class PatchesFollowGoal extends Goal {
                 updateProgress(distance);
             }
 
-            // Only call this a path-recovery failure when Patches is already in
-            // the Hurry range, navigation has repeatedly been unable to make
-            // meaningful progress for several seconds, and there is no active
-            // path left to follow. Ordinary flat-ground pursuit should never
-            // trip this merely because the player keeps moving.
             if (distance >= PATH_FAILURE_WARP_DISTANCE
                     && failedProgressChecks >= NO_PROGRESS_LIMIT
                     && patches.getNavigation().isDone()) {
+                catchUpCommitted = true;
                 urgency = PatchesFollowUrgency.WARP;
                 reportState("Unable to make pathing progress; using recovery warp.", distance, separationRate);
             }
@@ -173,32 +174,47 @@ public final class PatchesFollowGoal extends Goal {
         }
 
         if (distance >= WARP_DISTANCE) {
+            catchUpCommitted = true;
             return PatchesFollowUrgency.WARP;
         }
 
-        if (urgency == PatchesFollowUrgency.HURRY && distance > HURRY_RELEASE_DISTANCE) {
-            return PatchesFollowUrgency.HURRY;
-        }
-
-        if (urgency == PatchesFollowUrgency.CATCH_UP && distance > FOLLOW_RELEASE_DISTANCE) {
-            if (distance >= HURRY_DISTANCE || (distance >= CATCH_UP_DISTANCE && separationRate >= SPRINTING_AWAY_RATE)) {
+        if (catchUpCommitted) {
+            // Once Patches has actually started chasing, Attentive is no longer
+            // available. Stopping or walking back toward him should let him
+            // finish the rejoin all the way to three blocks.
+            if (distance >= HURRY_DISTANCE) {
+                return PatchesFollowUrgency.HURRY;
+            }
+            if (urgency == PatchesFollowUrgency.HURRY && distance > HURRY_RELEASE_DISTANCE) {
                 return PatchesFollowUrgency.HURRY;
             }
             return PatchesFollowUrgency.CATCH_UP;
         }
 
-        if (distance >= HURRY_DISTANCE || (distance >= CATCH_UP_DISTANCE && separationRate >= SPRINTING_AWAY_RATE)) {
-            return PatchesFollowUrgency.HURRY;
+        PatchesFollowUrgency state = determineUncommittedUrgency(distance, separationRate);
+        if (state == PatchesFollowUrgency.CATCH_UP
+                || state == PatchesFollowUrgency.HURRY
+                || state == PatchesFollowUrgency.WARP) {
+            catchUpCommitted = true;
+        }
+        return state;
+    }
+
+    private PatchesFollowUrgency determineUncommittedUrgency(double distance, double separationRate) {
+        if (distance >= WARP_DISTANCE) return PatchesFollowUrgency.WARP;
+        if (distance >= HURRY_DISTANCE) return PatchesFollowUrgency.HURRY;
+
+        // Moving toward Patches must never turn Attentive into Catch Up. The
+        // player is already closing the separation themselves.
+        if (separationRate <= TOWARD_RATE) {
+            return distance >= RELAXED_DISTANCE ? PatchesFollowUrgency.ATTENTIVE : PatchesFollowUrgency.RELAXED;
         }
 
-        if (distance >= CATCH_UP_DISTANCE) {
-            return PatchesFollowUrgency.CATCH_UP;
-        }
-
-        if (distance >= ATTENTIVE_DISTANCE || (distance >= RELAXED_DISTANCE && separationRate >= WALKING_AWAY_RATE)) {
+        if (distance >= CATCH_UP_DISTANCE) return PatchesFollowUrgency.CATCH_UP;
+        if (distance >= ATTENTIVE_DISTANCE
+                || (distance >= RELAXED_DISTANCE && separationRate >= WALKING_AWAY_RATE)) {
             return PatchesFollowUrgency.ATTENTIVE;
         }
-
         return PatchesFollowUrgency.RELAXED;
     }
 
@@ -227,9 +243,6 @@ public final class PatchesFollowGoal extends Goal {
         if (lastProgressDistance - distance >= MIN_PROGRESS_PER_CHECK) {
             failedProgressChecks = 0;
         } else if (patches.getNavigation().isDone()) {
-            // Lack of distance gain only counts against Patches when he also
-            // has no active path. If he is still navigating, let the path play
-            // out rather than interpreting pursuit of a moving player as stuck.
             failedProgressChecks++;
         } else {
             failedProgressChecks = 0;
@@ -258,11 +271,15 @@ public final class PatchesFollowGoal extends Goal {
             double x = landing.getX() + 0.5;
             double y = landing.getY();
             double z = landing.getZ() + 0.5;
-            if (patches.randomTeleport(x, y, z, true, state -> true)) {
-                patches.getNavigation().stop();
-                patches.setDeltaMovement(Vec3.ZERO);
-                return true;
-            }
+
+            // We already validated a solid floor and clear feet/head space.
+            // Directly place Patches on that grounded position rather than
+            // asking randomTeleport to perform a second, stricter validation
+            // that was rejecting otherwise valid superflat destinations.
+            patches.teleportTo(x, y, z);
+            patches.getNavigation().stop();
+            patches.setDeltaMovement(Vec3.ZERO);
+            return patches.distanceTo(player) < 6.0F;
         }
 
         return false;
@@ -297,8 +314,10 @@ public final class PatchesFollowGoal extends Goal {
             case RELAXED -> separationRate < 0.0
                     ? "Player approaching; no need to chase."
                     : "Player nearby; free to wander.";
-            case ATTENTIVE -> "Player is leaving; watching before committing to chase.";
-            case CATCH_UP -> "Player is getting away; catching up.";
+            case ATTENTIVE -> separationRate < 0.0
+                    ? "Player is coming back; watching without chasing."
+                    : "Player is leaving; watching before committing to chase.";
+            case CATCH_UP -> "Committed to rejoining player.";
             case HURRY -> "Player is well ahead; hurrying to rejoin.";
             case WARP -> "Player too distant; using emergency warp.";
         };
