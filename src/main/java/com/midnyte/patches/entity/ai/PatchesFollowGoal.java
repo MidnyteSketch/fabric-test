@@ -37,6 +37,8 @@ public final class PatchesFollowGoal extends Goal {
     private int attentiveIdleTicks;
     private double lastProgressDistance = Double.NaN;
     private double lastAttentiveDistance = Double.NaN;
+    private Vec3 lastObservedPlayerPosition;
+    private double lastObservedDepartureRate;
     private PatchesFollowUrgency urgency = PatchesFollowUrgency.RELAXED;
     private boolean catchUpCommitted;
     private boolean attentiveTimedOut;
@@ -48,12 +50,18 @@ public final class PatchesFollowGoal extends Goal {
 
     @Override
     public boolean canUse() {
-        if (patches.getMode() != PatchesMode.FOLLOWING) return false;
+        if (patches.getMode() != PatchesMode.FOLLOWING) {
+            resetPlayerObservation();
+            return false;
+        }
         Player candidate = patches.getFollowingPlayer();
-        if (candidate == null || candidate.isSpectator() || !candidate.isAlive()) return false;
+        if (candidate == null || candidate.isSpectator() || !candidate.isAlive()) {
+            resetPlayerObservation();
+            return false;
+        }
 
         double distance = patches.distanceTo(candidate);
-        double playerDepartureRate = getPlayerDepartureRate(candidate);
+        double playerDepartureRate = observePlayerDeparture(candidate);
         if (distance < CATCH_UP_DISTANCE && playerDepartureRate < WALKING_AWAY_RATE) return false;
         if (distance < RELAXED_DISTANCE) return false;
 
@@ -78,16 +86,16 @@ public final class PatchesFollowGoal extends Goal {
         lastProgressDistance = Double.NaN;
         lastAttentiveDistance = distanceToPlayer();
         catchUpCommitted = false;
-        urgency = determineUncommittedUrgency(distanceToPlayer(), getPlayerDepartureRate());
+        urgency = determineUncommittedUrgency(distanceToPlayer(), lastObservedDepartureRate);
         if (urgency == PatchesFollowUrgency.CATCH_UP || urgency == PatchesFollowUrgency.HURRY || urgency == PatchesFollowUrgency.WARP) catchUpCommitted = true;
-        reportState(reasonFor(urgency), distanceToPlayer(), getPlayerDepartureRate());
+        reportState(reasonFor(urgency), distanceToPlayer(), lastObservedDepartureRate);
     }
 
     @Override
     public void stop() {
         if (DEBUG_FOLLOW_STATE && player != null && patches.getMode() == PatchesMode.FOLLOWING) {
             urgency = PatchesFollowUrgency.RELAXED;
-            reportState(attentiveTimedOut ? "Player lingered nearby; returning to own business." : "Rejoined player; free to wander.", distanceToPlayer(), getPlayerDepartureRate());
+            reportState(attentiveTimedOut ? "Player lingered nearby; returning to own business." : "Rejoined player; free to wander.", distanceToPlayer(), lastObservedDepartureRate);
         }
         player = null;
         patches.getNavigation().stop();
@@ -98,13 +106,16 @@ public final class PatchesFollowGoal extends Goal {
         lastAttentiveDistance = Double.NaN;
         catchUpCommitted = false;
         urgency = PatchesFollowUrgency.RELAXED;
+        // Keep the last observed player position. canUse() needs the observation
+        // history while this goal is inactive so it can notice the player
+        // actually beginning to leave.
     }
 
     @Override
     public void tick() {
         if (player == null) return;
         double distance = distanceToPlayer();
-        double playerDepartureRate = getPlayerDepartureRate();
+        double playerDepartureRate = observePlayerDeparture(player);
         PatchesFollowUrgency desired = determineUrgency(distance, playerDepartureRate);
 
         if (desired != urgency) {
@@ -201,20 +212,33 @@ public final class PatchesFollowGoal extends Goal {
         return PatchesFollowUrgency.RELAXED;
     }
 
-    private double getPlayerDepartureRate() {
-        return player == null ? 0.0 : getPlayerDepartureRate(player);
+    private double observePlayerDeparture(Player target) {
+        Vec3 current = target.position();
+        if (lastObservedPlayerPosition == null) {
+            lastObservedPlayerPosition = current;
+            lastObservedDepartureRate = 0.0;
+            return 0.0;
+        }
+
+        Vec3 movement = current.subtract(lastObservedPlayerPosition);
+        lastObservedPlayerPosition = current;
+
+        Vec3 fromPatches = current.subtract(patches.position());
+        double horizontalDistance = Math.sqrt(fromPatches.x * fromPatches.x + fromPatches.z * fromPatches.z);
+        if (horizontalDistance < 1.0e-4) {
+            lastObservedDepartureRate = 0.0;
+            return 0.0;
+        }
+
+        double outwardX = fromPatches.x / horizontalDistance;
+        double outwardZ = fromPatches.z / horizontalDistance;
+        lastObservedDepartureRate = movement.x * outwardX + movement.z * outwardZ;
+        return lastObservedDepartureRate;
     }
 
-    private double getPlayerDepartureRate(Player target) {
-        Vec3 toPlayer = target.position().subtract(patches.position());
-        double horizontalDistance = Math.sqrt(toPlayer.x * toPlayer.x + toPlayer.z * toPlayer.z);
-        if (horizontalDistance < 1.0e-4) return 0.0;
-        Vec3 movement = target.getDeltaMovement();
-        // Positive means the player is moving farther away from Patches;
-        // negative means the player is moving back toward him.
-        double outwardX = toPlayer.x / horizontalDistance;
-        double outwardZ = toPlayer.z / horizontalDistance;
-        return movement.x * outwardX + movement.z * outwardZ;
+    private void resetPlayerObservation() {
+        lastObservedPlayerPosition = null;
+        lastObservedDepartureRate = 0.0;
     }
 
     private void updateProgress(double distance) {
