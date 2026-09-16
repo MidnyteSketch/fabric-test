@@ -26,6 +26,8 @@ public final class PatchesFollowGoal extends Goal {
     private static final double WALKING_AWAY_RATE = 0.035;
     private static final double TOWARD_RATE = -0.02;
     private static final double SPRINTING_AWAY_RATE = 0.09;
+    private static final double ATTENTIVE_DISTANCE_CHANGE_EPSILON = 0.025;
+    private static final int ATTENTIVE_PATIENCE_TICKS = 100;
 
     private static final double CATCH_UP_SPEED = 1.15;
     private static final double HURRY_SPEED = 1.35;
@@ -40,9 +42,12 @@ public final class PatchesFollowGoal extends Goal {
     private Player player;
     private int recalcTicks;
     private int failedProgressChecks;
+    private int attentiveIdleTicks;
     private double lastProgressDistance = Double.NaN;
+    private double lastAttentiveDistance = Double.NaN;
     private PatchesFollowUrgency urgency = PatchesFollowUrgency.RELAXED;
     private boolean catchUpCommitted;
+    private boolean attentiveTimedOut;
 
     public PatchesFollowGoal(PatchesEntity patches) {
         this.patches = patches;
@@ -75,6 +80,10 @@ public final class PatchesFollowGoal extends Goal {
             return false;
         }
 
+        if (attentiveTimedOut && !catchUpCommitted) {
+            return false;
+        }
+
         if (catchUpCommitted) {
             return distanceToPlayer() > FOLLOW_RELEASE_DISTANCE;
         }
@@ -86,7 +95,10 @@ public final class PatchesFollowGoal extends Goal {
     public void start() {
         recalcTicks = 0;
         failedProgressChecks = 0;
+        attentiveIdleTicks = 0;
+        attentiveTimedOut = false;
         lastProgressDistance = Double.NaN;
+        lastAttentiveDistance = distanceToPlayer();
         catchUpCommitted = false;
         urgency = determineUncommittedUrgency(distanceToPlayer(), getSeparationRate());
         if (urgency == PatchesFollowUrgency.CATCH_UP
@@ -101,12 +113,18 @@ public final class PatchesFollowGoal extends Goal {
     public void stop() {
         if (DEBUG_FOLLOW_STATE && player != null && patches.getMode() == PatchesMode.FOLLOWING) {
             urgency = PatchesFollowUrgency.RELAXED;
-            reportState("Rejoined player; free to wander.", distanceToPlayer(), getSeparationRate());
+            String reason = attentiveTimedOut
+                    ? "Player lingered nearby; returning to own business."
+                    : "Rejoined player; free to wander.";
+            reportState(reason, distanceToPlayer(), getSeparationRate());
         }
         player = null;
         patches.getNavigation().stop();
         failedProgressChecks = 0;
+        attentiveIdleTicks = 0;
+        attentiveTimedOut = false;
         lastProgressDistance = Double.NaN;
+        lastAttentiveDistance = Double.NaN;
         catchUpCommitted = false;
         urgency = PatchesFollowUrgency.RELAXED;
     }
@@ -121,6 +139,8 @@ public final class PatchesFollowGoal extends Goal {
 
         if (desired != urgency) {
             urgency = desired;
+            attentiveIdleTicks = 0;
+            lastAttentiveDistance = distance;
             reportState(reasonFor(desired, separationRate), distance, separationRate);
         }
 
@@ -141,8 +161,12 @@ public final class PatchesFollowGoal extends Goal {
             patches.getNavigation().stop();
             failedProgressChecks = 0;
             lastProgressDistance = distance;
+            updateAttentivePatience(distance);
             return;
         }
+
+        attentiveIdleTicks = 0;
+        lastAttentiveDistance = Double.NaN;
 
         if (--recalcTicks <= 0) {
             recalcTicks = adjustedTickDelay(PATH_RECALC_TICKS);
@@ -168,6 +192,31 @@ public final class PatchesFollowGoal extends Goal {
         }
     }
 
+    private void updateAttentivePatience(double distance) {
+        if (Double.isNaN(lastAttentiveDistance)) {
+            lastAttentiveDistance = distance;
+            attentiveIdleTicks = 0;
+            return;
+        }
+
+        double distanceChange = distance - lastAttentiveDistance;
+        lastAttentiveDistance = distance;
+
+        if (distanceChange > ATTENTIVE_DISTANCE_CHANGE_EPSILON) {
+            // The player really is continuing to leave, so Patches remains
+            // interested and the five-second patience window starts fresh.
+            attentiveIdleTicks = 0;
+            return;
+        }
+
+        // Standing still, circling at roughly the same radius, or moving back
+        // toward Patches all count as "not actually leaving".
+        attentiveIdleTicks++;
+        if (attentiveIdleTicks >= ATTENTIVE_PATIENCE_TICKS) {
+            attentiveTimedOut = true;
+        }
+    }
+
     private PatchesFollowUrgency determineUrgency(double distance, double separationRate) {
         if (urgency == PatchesFollowUrgency.WARP) {
             return PatchesFollowUrgency.WARP;
@@ -179,9 +228,6 @@ public final class PatchesFollowGoal extends Goal {
         }
 
         if (catchUpCommitted) {
-            // Once Patches has actually started chasing, Attentive is no longer
-            // available. Stopping or walking back toward him should let him
-            // finish the rejoin all the way to three blocks.
             if (distance >= HURRY_DISTANCE) {
                 return PatchesFollowUrgency.HURRY;
             }
@@ -204,8 +250,6 @@ public final class PatchesFollowGoal extends Goal {
         if (distance >= WARP_DISTANCE) return PatchesFollowUrgency.WARP;
         if (distance >= HURRY_DISTANCE) return PatchesFollowUrgency.HURRY;
 
-        // Moving toward Patches must never turn Attentive into Catch Up. The
-        // player is already closing the separation themselves.
         if (separationRate <= TOWARD_RATE) {
             return distance >= RELAXED_DISTANCE ? PatchesFollowUrgency.ATTENTIVE : PatchesFollowUrgency.RELAXED;
         }
@@ -271,11 +315,6 @@ public final class PatchesFollowGoal extends Goal {
             double x = landing.getX() + 0.5;
             double y = landing.getY();
             double z = landing.getZ() + 0.5;
-
-            // We already validated a solid floor and clear feet/head space.
-            // Directly place Patches on that grounded position rather than
-            // asking randomTeleport to perform a second, stricter validation
-            // that was rejecting otherwise valid superflat destinations.
             patches.teleportTo(x, y, z);
             patches.getNavigation().stop();
             patches.setDeltaMovement(Vec3.ZERO);
@@ -316,7 +355,7 @@ public final class PatchesFollowGoal extends Goal {
                     : "Player nearby; free to wander.";
             case ATTENTIVE -> separationRate < 0.0
                     ? "Player is coming back; watching without chasing."
-                    : "Player is leaving; watching before committing to chase.";
+                    : "Player may be leaving; watching to see what they do.";
             case CATCH_UP -> "Committed to rejoining player.";
             case HURRY -> "Player is well ahead; hurrying to rejoin.";
             case WARP -> "Player too distant; using emergency warp.";
