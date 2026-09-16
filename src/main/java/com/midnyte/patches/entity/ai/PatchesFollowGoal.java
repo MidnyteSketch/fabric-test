@@ -30,9 +30,9 @@ public final class PatchesFollowGoal extends Goal {
     private static final double HURRY_SPEED = 1.35;
 
     private static final int PATH_RECALC_TICKS = 10;
-    private static final int NO_PROGRESS_LIMIT = 6;
-    private static final double MIN_PROGRESS_PER_CHECK = 0.20;
-    private static final double PATH_FAILURE_WARP_DISTANCE = 10.0;
+    private static final int NO_PROGRESS_LIMIT = 10;
+    private static final double MIN_PROGRESS_PER_CHECK = 0.05;
+    private static final double PATH_FAILURE_WARP_DISTANCE = 16.0;
     private static final int WARP_GROUND_SEARCH_DEPTH = 12;
 
     private final PatchesEntity patches;
@@ -56,10 +56,6 @@ public final class PatchesFollowGoal extends Goal {
 
         double distance = patches.distanceTo(candidate);
         double separationRate = getSeparationRate(candidate);
-
-        // Keep MOVE/LOOK free during ordinary relaxed following. Attentive is
-        // allowed to engage before catch-up so Patches can visibly notice the
-        // player leaving without immediately chasing at six blocks.
         if (distance < RELAXED_DISTANCE || (distance < ATTENTIVE_DISTANCE && separationRate <= 0.0)) {
             return false;
         }
@@ -77,9 +73,6 @@ public final class PatchesFollowGoal extends Goal {
             return false;
         }
 
-        // Once actual catch-up begins, stay committed until Patches is close.
-        // Attentive itself is not a catch-up commitment and may release if the
-        // player stops leaving before Patches needs to chase.
         if (urgency == PatchesFollowUrgency.ATTENTIVE) {
             return distanceToPlayer() >= RELAXED_DISTANCE;
         }
@@ -150,15 +143,24 @@ public final class PatchesFollowGoal extends Goal {
             boolean pathStarted = patches.getNavigation().moveTo(player, speed);
 
             if (!pathStarted) {
-                failedProgressChecks++;
+                // A rejected moveTo call by itself is not proof that Patches is
+                // stuck. Navigation can already have a useful path, and moving
+                // targets can make individual recalculations fail transiently.
+                if (patches.getNavigation().isDone()) {
+                    failedProgressChecks++;
+                }
             } else {
                 updateProgress(distance);
             }
 
-            // Path failure is an independent reason to warp. It does not need
-            // to wait for the 25-block emergency-distance threshold, but it
-            // does require repeated failure while meaningfully separated.
-            if (distance >= PATH_FAILURE_WARP_DISTANCE && failedProgressChecks >= NO_PROGRESS_LIMIT) {
+            // Only call this a path-recovery failure when Patches is already in
+            // the Hurry range, navigation has repeatedly been unable to make
+            // meaningful progress for several seconds, and there is no active
+            // path left to follow. Ordinary flat-ground pursuit should never
+            // trip this merely because the player keeps moving.
+            if (distance >= PATH_FAILURE_WARP_DISTANCE
+                    && failedProgressChecks >= NO_PROGRESS_LIMIT
+                    && patches.getNavigation().isDone()) {
                 urgency = PatchesFollowUrgency.WARP;
                 reportState("Unable to make pathing progress; using recovery warp.", distance, separationRate);
             }
@@ -189,8 +191,6 @@ public final class PatchesFollowGoal extends Goal {
             return PatchesFollowUrgency.HURRY;
         }
 
-        // Distance, not ordinary walking speed, is what advances Attentive to
-        // Catch Up. This gives the notice state a real 6-12 block window.
         if (distance >= CATCH_UP_DISTANCE) {
             return PatchesFollowUrgency.CATCH_UP;
         }
@@ -226,8 +226,13 @@ public final class PatchesFollowGoal extends Goal {
 
         if (lastProgressDistance - distance >= MIN_PROGRESS_PER_CHECK) {
             failedProgressChecks = 0;
-        } else {
+        } else if (patches.getNavigation().isDone()) {
+            // Lack of distance gain only counts against Patches when he also
+            // has no active path. If he is still navigating, let the path play
+            // out rather than interpreting pursuit of a moving player as stuck.
             failedProgressChecks++;
+        } else {
+            failedProgressChecks = 0;
         }
 
         lastProgressDistance = distance;
@@ -260,9 +265,6 @@ public final class PatchesFollowGoal extends Goal {
             }
         }
 
-        // No safe grounded landing near the player means no warp this tick.
-        // In particular, a creative/flying player cannot drag Patches into
-        // mid-air and make him fall to his death.
         return false;
     }
 
