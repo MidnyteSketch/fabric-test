@@ -51,18 +51,13 @@ def decodeBinaryResources = tasks.register("decodeBinaryResources") {
     }
 }
 
-sourceSets.main.resources.srcDir(decodedResourcesDir)
+sourceSets.main.resources.srcDir(decodeBinaryResources)
 
 processResources {
-    dependsOn decodeBinaryResources
     inputs.property "version", project.version
     filesMatching("fabric.mod.json") {
         expand "version": project.version
     }
-}
-
-tasks.named("sourcesJar") {
-    dependsOn decodeBinaryResources
 }
 
 tasks.withType(JavaCompile).configureEach {
