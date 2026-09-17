@@ -7,7 +7,8 @@ public enum PatchesExpression {
     MOUTH_OPEN(3),
     HURT(4),
     RESTING(5),
-    JOY(6);
+    JOY(6),
+    CONTENT(7);
 
     private final int id;
 
