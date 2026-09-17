@@ -27,7 +27,34 @@ dependencies {
     implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 }
 
+def encodedResourcesDir = file("art_source/encoded_resources")
+def decodedResourcesDir = layout.buildDirectory.dir("generated/decoded_resources")
+
+tasks.register("decodeBinaryResources") {
+    inputs.dir(encodedResourcesDir)
+    outputs.dir(decodedResourcesDir)
+
+    doLast {
+        File outputRoot = decodedResourcesDir.get().asFile
+        delete(outputRoot)
+        if (!encodedResourcesDir.exists()) {
+            return
+        }
+
+        fileTree(encodedResourcesDir).matching { include "**/*.b64" }.each { File encodedFile ->
+            String relativePath = encodedResourcesDir.toPath().relativize(encodedFile.toPath()).toString()
+            relativePath = relativePath.substring(0, relativePath.length() - ".b64".length())
+            File outputFile = new File(outputRoot, relativePath)
+            outputFile.parentFile.mkdirs()
+            outputFile.bytes = Base64.decoder.decode(encodedFile.text.replaceAll("\\s", ""))
+        }
+    }
+}
+
+sourceSets.main.resources.srcDir(decodedResourcesDir)
+
 processResources {
+    dependsOn tasks.named("decodeBinaryResources")
     inputs.property "version", project.version
     filesMatching("fabric.mod.json") {
         expand "version": project.version
