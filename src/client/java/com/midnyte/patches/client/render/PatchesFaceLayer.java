@@ -14,35 +14,14 @@ import net.minecraft.resources.Identifier;
 public final class PatchesFaceLayer extends RenderLayer<PatchesRenderState, PatchesModel> {
     private final PatchesFaceModel faceModel;
 
-    public PatchesFaceLayer(
-            RenderLayerParent<PatchesRenderState, PatchesModel> renderer,
-            PatchesFaceModel faceModel
-    ) {
+    public PatchesFaceLayer(RenderLayerParent<PatchesRenderState, PatchesModel> renderer, PatchesFaceModel faceModel) {
         super(renderer);
         this.faceModel = faceModel;
     }
 
     @Override
-    public void submit(
-            PoseStack poseStack,
-            SubmitNodeCollector submitNodeCollector,
-            int lightCoords,
-            PatchesRenderState state,
-            float yRot,
-            float xRot
-    ) {
-        Identifier texture = textureFor(state.expression);
-
-        coloredCutoutModelCopyLayerRender(
-                this.faceModel,
-                texture,
-                poseStack,
-                submitNodeCollector,
-                lightCoords,
-                state,
-                -1,
-                0
-        );
+    public void submit(PoseStack poseStack, SubmitNodeCollector submitNodeCollector, int lightCoords, PatchesRenderState state, float yRot, float xRot) {
+        coloredCutoutModelCopyLayerRender(this.faceModel, textureFor(state.expression), poseStack, submitNodeCollector, lightCoords, state, -1, 0);
     }
 
     private static Identifier textureFor(PatchesExpression expression) {
@@ -53,8 +32,9 @@ public final class PatchesFaceLayer extends RenderLayer<PatchesRenderState, Patc
             case MOUTH_OPEN -> "textures/entity/face/mouth_open.png";
             case HURT -> "textures/entity/face/hurt.png";
             case RESTING -> "textures/entity/face/resting.png";
+            // Temporary visual alias until the new PSD Joy layer is exported into the repository.
+            case JOY -> "textures/entity/face/laugh.png";
         };
-
         return Identifier.fromNamespaceAndPath(PatchesMod.MOD_ID, path);
     }
 }
