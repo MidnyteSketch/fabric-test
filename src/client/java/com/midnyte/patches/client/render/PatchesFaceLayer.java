@@ -32,8 +32,7 @@ public final class PatchesFaceLayer extends RenderLayer<PatchesRenderState, Patc
             case MOUTH_OPEN -> "textures/entity/face/mouth_open.png";
             case HURT -> "textures/entity/face/hurt.png";
             case RESTING -> "textures/entity/face/resting.png";
-            // Temporary visual alias until the new PSD Joy layer is exported into the repository.
-            case JOY -> "textures/entity/face/laugh.png";
+            case JOY -> "textures/entity/face/joy.png";
         };
         return Identifier.fromNamespaceAndPath(PatchesMod.MOD_ID, path);
     }
