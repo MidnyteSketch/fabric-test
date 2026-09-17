@@ -8,7 +8,8 @@ public enum PatchesExpression {
     HURT(4),
     RESTING(5),
     JOY(6),
-    CONTENT(7);
+    CONTENT(7),
+    LAUGH_TONGUE(8);
 
     private final int id;
 
