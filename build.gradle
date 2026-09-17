@@ -30,7 +30,7 @@ dependencies {
 def encodedResourcesDir = file("art_source/encoded_resources")
 def decodedResourcesDir = layout.buildDirectory.dir("generated/decoded_resources")
 
-tasks.register("decodeBinaryResources") {
+def decodeBinaryResources = tasks.register("decodeBinaryResources") {
     inputs.dir(encodedResourcesDir)
     outputs.dir(decodedResourcesDir)
 
@@ -54,11 +54,15 @@ tasks.register("decodeBinaryResources") {
 sourceSets.main.resources.srcDir(decodedResourcesDir)
 
 processResources {
-    dependsOn tasks.named("decodeBinaryResources")
+    dependsOn decodeBinaryResources
     inputs.property "version", project.version
     filesMatching("fabric.mod.json") {
         expand "version": project.version
     }
+}
+
+tasks.named("sourcesJar") {
+    dependsOn decodeBinaryResources
 }
 
 tasks.withType(JavaCompile).configureEach {
