@@ -34,6 +34,7 @@ public final class PatchesFaceLayer extends RenderLayer<PatchesRenderState, Patc
             case RESTING -> "textures/entity/face/resting.png";
             case JOY -> "textures/entity/face/joy.png";
             case CONTENT -> "textures/entity/face/eyes_closed_sleeping.png";
+            case LAUGH_TONGUE -> "textures/entity/face/laugh_tongue.png";
         };
         return Identifier.fromNamespaceAndPath(PatchesMod.MOD_ID, path);
     }
