@@ -11,8 +11,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.EnumSet;
-import java.util.HashSet;
-import java.util.Set;
 
 /** First vertical slice of Patches' ambient-curiosity system: flowers only. */
 public final class PatchesFlowerCuriosityGoal extends Goal {
@@ -29,7 +27,6 @@ public final class PatchesFlowerCuriosityGoal extends Goal {
     private static final double APPROACH_SPEED = 0.85;
 
     private final PatchesEntity patches;
-    private final Set<BlockPos> rememberedFlowers = new HashSet<>();
     private BlockPos target;
     private Phase phase = Phase.IDLE;
     private int phaseTicks;
@@ -41,47 +38,29 @@ public final class PatchesFlowerCuriosityGoal extends Goal {
         this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
     }
 
-    @Override
-    public boolean canUse() {
-        if (cooldownTicks > 0) {
-            cooldownTicks--;
-            return false;
-        }
+    @Override public boolean canUse() {
+        if (cooldownTicks > 0) { cooldownTicks--; return false; }
         if (patches.getMode() == PatchesMode.SITTING) return false;
         if (++scanTicks < SCAN_INTERVAL_TICKS) return false;
         scanTicks = 0;
         if (followDistanceIsUrgent()) return false;
-
         target = findNearbyFlower();
         return target != null;
     }
 
-    @Override
-    public boolean canContinueToUse() {
-        return target != null && phase != Phase.IDLE && patches.getMode() != PatchesMode.SITTING;
-    }
+    @Override public boolean canContinueToUse() { return target != null && phase != Phase.IDLE && patches.getMode() != PatchesMode.SITTING; }
 
-    @Override
-    public void start() {
+    @Override public void start() {
         phase = Phase.NOTICE;
         phaseTicks = 8;
         patches.setActivityExpression(PatchesExpression.SURPRISED);
         report("NOTICE", "Spotted a new flower at " + target.toShortString() + ".");
     }
 
-    @Override
-    public void tick() {
+    @Override public void tick() {
         if (target == null) return;
-        if (followDistanceIsUrgent()) {
-            report("INTERRUPTED", "Player reached Hurry range; abandoning flower.");
-            finish(false);
-            return;
-        }
-        if (!patches.level().getBlockState(target).is(BlockTags.FLOWERS)) {
-            report("INTERRUPTED", "Flower is gone.");
-            finish(false);
-            return;
-        }
+        if (followDistanceIsUrgent()) { report("INTERRUPTED", "Player reached Hurry range; abandoning flower."); finish(false); return; }
+        if (!patches.level().getBlockState(target).is(BlockTags.FLOWERS)) { report("INTERRUPTED", "Flower is gone."); finish(false); return; }
 
         Vec3 flowerCenter = Vec3.atCenterOf(target);
         switch (phase) {
@@ -95,106 +74,51 @@ public final class PatchesFlowerCuriosityGoal extends Goal {
                 patches.getLookControl().setLookAt(flowerCenter.x, flowerCenter.y, flowerCenter.z, 20.0F, patches.getMaxHeadXRot());
                 double distance = Math.sqrt(patches.distanceToSqr(flowerCenter));
                 if (distance <= APPROACH_DISTANCE) {
-                    patches.getNavigation().stop();
-                    phase = Phase.INSPECT;
-                    phaseTicks = INSPECT_TICKS;
+                    patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = INSPECT_TICKS;
                     report("INSPECT", "Reached flower; taking a closer look.");
-                } else if (patches.getNavigation().isDone() || patches.tickCount % 10 == 0) {
-                    patches.getNavigation().moveTo(flowerCenter.x, flowerCenter.y, flowerCenter.z, APPROACH_SPEED);
-                }
+                } else if (patches.getNavigation().isDone() || patches.tickCount % 10 == 0) patches.getNavigation().moveTo(flowerCenter.x, flowerCenter.y, flowerCenter.z, APPROACH_SPEED);
             }
             case INSPECT -> {
-                patches.getNavigation().stop();
-                patches.setActivityExpression(PatchesExpression.DEFAULT);
+                patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.DEFAULT);
                 patches.getLookControl().setLookAt(flowerCenter.x, flowerCenter.y + 0.15, flowerCenter.z, 20.0F, patches.getMaxHeadXRot());
-                if (--phaseTicks <= 0) {
-                    phase = Phase.SHARE_WAIT;
-                    phaseTicks = SHARE_WAIT_TICKS;
-                    report("SHARE WAIT", "Finished inspecting; quietly waiting to see if player comes over.");
-                }
+                if (--phaseTicks <= 0) { phase = Phase.SHARE_WAIT; phaseTicks = SHARE_WAIT_TICKS; report("SHARE WAIT", "Finished inspecting; quietly waiting to see if player comes over."); }
             }
             case SHARE_WAIT -> {
-                patches.getNavigation().stop();
-                patches.setActivityExpression(PatchesExpression.DEFAULT);
+                patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.DEFAULT);
                 patches.getLookControl().setLookAt(flowerCenter.x, flowerCenter.y + 0.15, flowerCenter.z, 20.0F, patches.getMaxHeadXRot());
                 Player player = relevantPlayer();
                 if (player != null && patches.distanceTo(player) <= SHARE_PLAYER_DISTANCE) {
-                    phase = Phase.SHARE_REACTION;
-                    phaseTicks = SHARE_REACTION_TICKS;
-                    patches.setActivityExpression(PatchesExpression.JOY);
+                    phase = Phase.SHARE_REACTION; phaseTicks = SHARE_REACTION_TICKS; patches.setActivityExpression(PatchesExpression.JOY);
                     report("SHARE REACTION", "Player came to see the flower; showing Joy.");
-                } else if (--phaseTicks <= 0) {
-                    report("COMPLETE", "Player did not join; finished enjoying the flower.");
-                    finish(true);
-                }
+                } else if (--phaseTicks <= 0) { report("COMPLETE", "Player did not join; finished enjoying the flower."); finish(true); }
             }
             case SHARE_REACTION -> {
-                patches.getNavigation().stop();
-                patches.setActivityExpression(PatchesExpression.JOY);
-                Player player = relevantPlayer();
-                if (player != null) patches.getLookControl().setLookAt(player, 20.0F, patches.getMaxHeadXRot());
-                if (--phaseTicks <= 0) {
-                    report("COMPLETE", "Finished sharing the find; returning to normal behavior.");
-                    finish(true);
-                }
+                patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.JOY);
+                Player player = relevantPlayer(); if (player != null) patches.getLookControl().setLookAt(player, 20.0F, patches.getMaxHeadXRot());
+                if (--phaseTicks <= 0) { report("COMPLETE", "Finished sharing the find; returning to normal behavior."); finish(true); }
             }
             case IDLE -> { }
         }
     }
 
-    @Override
-    public void stop() {
-        if (phase != Phase.IDLE) finish(false);
-    }
-
-    private void enterApproach() {
-        phase = Phase.APPROACH;
-        report("APPROACH", "Going over to investigate the flower.");
-    }
-
+    @Override public void stop() { if (phase != Phase.IDLE) finish(false); }
+    private void enterApproach() { phase = Phase.APPROACH; report("APPROACH", "Going over to investigate the flower."); }
     private void finish(boolean remember) {
-        if (remember && target != null) rememberedFlowers.add(target.immutable());
-        patches.getNavigation().stop();
-        patches.clearActivityExpression();
-        target = null;
-        phase = Phase.IDLE;
-        phaseTicks = 0;
-        cooldownTicks = GENERAL_COOLDOWN_TICKS;
+        if (remember && target != null) patches.rememberFlowerCuriosity(target);
+        patches.getNavigation().stop(); patches.clearActivityExpression(); target = null; phase = Phase.IDLE; phaseTicks = 0; cooldownTicks = GENERAL_COOLDOWN_TICKS;
     }
-
-    private boolean followDistanceIsUrgent() {
-        if (patches.getMode() != PatchesMode.FOLLOWING) return false;
-        Player player = patches.getFollowingPlayer();
-        return player != null && patches.distanceTo(player) >= HURRY_INTERRUPT_DISTANCE;
-    }
-
-    private Player relevantPlayer() {
-        Player followed = patches.getFollowingPlayer();
-        if (followed != null) return followed;
-        return patches.level().getNearestPlayer(patches, 12.0);
-    }
-
+    private boolean followDistanceIsUrgent() { if (patches.getMode() != PatchesMode.FOLLOWING) return false; Player player = patches.getFollowingPlayer(); return player != null && patches.distanceTo(player) >= HURRY_INTERRUPT_DISTANCE; }
+    private Player relevantPlayer() { Player followed = patches.getFollowingPlayer(); if (followed != null) return followed; return patches.level().getNearestPlayer(patches, 12.0); }
     private BlockPos findNearbyFlower() {
-        BlockPos origin = patches.blockPosition();
-        int radius = (int) Math.ceil(SCAN_RADIUS);
-        BlockPos best = null;
-        double bestDistance = Double.MAX_VALUE;
-        for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-radius, -2, -radius), origin.offset(radius, 2, radius))) {
-            if (rememberedFlowers.contains(pos)) continue;
+        BlockPos origin = patches.blockPosition(); int radius = (int)Math.ceil(SCAN_RADIUS); BlockPos best = null; double bestDistance = Double.MAX_VALUE;
+        for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-radius,-2,-radius), origin.offset(radius,2,radius))) {
+            if (patches.hasRememberedFlowerCuriosity(pos)) continue;
             if (!patches.level().getBlockState(pos).is(BlockTags.FLOWERS)) continue;
-            double distance = pos.distSqr(origin);
-            if (distance > SCAN_RADIUS * SCAN_RADIUS || distance >= bestDistance) continue;
-            best = pos.immutable();
-            bestDistance = distance;
+            double distance = pos.distSqr(origin); if (distance > SCAN_RADIUS*SCAN_RADIUS || distance >= bestDistance) continue;
+            best = pos.immutable(); bestDistance = distance;
         }
         return best;
     }
-
-    private void report(String state, String detail) {
-        if (!DEBUG_CURIOSITY) return;
-        Player player = relevantPlayer();
-        if (player != null) player.sendSystemMessage(Component.literal("[Patches] CURIOSITY: " + state + " — " + detail));
-    }
-
+    private void report(String state,String detail) { if (!DEBUG_CURIOSITY) return; Player player = relevantPlayer(); if (player != null) player.sendSystemMessage(Component.literal("[Patches] CURIOSITY: "+state+" — "+detail)); }
     private enum Phase { IDLE, NOTICE, APPROACH, INSPECT, SHARE_WAIT, SHARE_REACTION }
 }
