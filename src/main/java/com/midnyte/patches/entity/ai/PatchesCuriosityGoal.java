@@ -194,7 +194,6 @@ public final class PatchesCuriosityGoal extends Goal {
             if ((cycle == 4 || cycle == 18) && patches.onGround() && beckonHops < 2) {
                 Vec3 motion = patches.getDeltaMovement();
                 patches.setDeltaMovement(motion.x, 0.34, motion.z);
-                patches.hasImpulse = true;
                 beckonHops++;
             }
         } else {
