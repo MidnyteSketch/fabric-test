@@ -170,8 +170,13 @@ public final class PatchesCuriosityGoal extends Goal {
             case BECKON -> tickDiamondBeckon(center);
             case SHARE_REACTION -> {
                 patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.LAUGH_TONGUE);
-                // A simple celebratory spin. No special animation asset is required for this first prototype.
-                patches.setYRot(patches.getYRot() + 24.0F);
+                // Own both body-facing rotations during the celebration so normal mob controls do not cancel the spin.
+                float celebrationYaw = patches.getYRot() + 24.0F;
+                patches.setYRot(celebrationYaw);
+                patches.yBodyRot = celebrationYaw;
+                patches.yHeadRot = celebrationYaw;
+                patches.yBodyRotO = celebrationYaw;
+                patches.yHeadRotO = celebrationYaw;
                 if (--phaseTicks <= 0) { report("COMPLETE", "Finished celebrating the Diamond discovery."); finish(true); }
             }
             default -> { }
