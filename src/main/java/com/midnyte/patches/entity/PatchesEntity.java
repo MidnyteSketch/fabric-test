@@ -50,6 +50,7 @@ public final class PatchesEntity extends PathfinderMob {
     private @Nullable UUID followingPlayerUuid;
     private int expressionOverrideTicks;
     private final Set<BlockPos> rememberedFlowerCuriosities = new HashSet<>();
+    private final Set<BlockPos> rememberedLowBlockCuriosities = new HashSet<>();
     private final Set<UUID> rememberedAxolotlCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedDiamondCuriosities = new HashSet<>();
 
@@ -83,6 +84,8 @@ public final class PatchesEntity extends PathfinderMob {
 
     public void rememberFlowerCuriosity(BlockPos pos) { rememberedFlowerCuriosities.add(pos.immutable()); }
     public boolean hasRememberedFlowerCuriosity(BlockPos pos) { return rememberedFlowerCuriosities.contains(pos); }
+    public void rememberLowBlockCuriosity(BlockPos pos) { rememberedLowBlockCuriosities.add(pos.immutable()); }
+    public boolean hasRememberedLowBlockCuriosity(BlockPos pos) { return rememberedLowBlockCuriosities.contains(pos); }
     public void rememberAxolotlCuriosity(UUID uuid) { rememberedAxolotlCuriosities.add(uuid); }
     public boolean hasRememberedAxolotlCuriosity(UUID uuid) { return rememberedAxolotlCuriosities.contains(uuid); }
     public void rememberDiamondCuriosity(BlockPos pos) { rememberedDiamondCuriosities.add(pos.immutable()); }
@@ -138,6 +141,7 @@ public final class PatchesEntity extends PathfinderMob {
         ItemStack bundle = getBundleStack(); if (!bundle.isEmpty()) output.store("PatchesBundle", ItemStack.CODEC, bundle);
         ItemStack spyglass = getSpyglassStack(); if (!spyglass.isEmpty()) output.store("PatchesSpyglass", ItemStack.CODEC, spyglass);
         output.putString("PatchesRememberedFlowers", encodeBlockPositions(rememberedFlowerCuriosities));
+        output.putString("PatchesRememberedLowBlocks", encodeBlockPositions(rememberedLowBlockCuriosities));
         output.putString("PatchesRememberedAxolotls", encodeAxolotlMemory());
         output.putString("PatchesRememberedDiamonds", encodeBlockPositions(rememberedDiamondCuriosities));
     }
@@ -147,6 +151,7 @@ public final class PatchesEntity extends PathfinderMob {
         ItemStack savedBundle = input.read("PatchesBundle", ItemStack.CODEC).orElse(ItemStack.EMPTY); setBundleStack(savedBundle.isEmpty() || BundleSupport.isBundle(savedBundle) ? savedBundle : ItemStack.EMPTY);
         ItemStack savedSpyglass = input.read("PatchesSpyglass", ItemStack.CODEC).orElse(ItemStack.EMPTY); setSpyglassStack(savedSpyglass.isEmpty() || savedSpyglass.is(Items.SPYGLASS) ? savedSpyglass : ItemStack.EMPTY);
         decodeBlockPositions(input.getStringOr("PatchesRememberedFlowers", ""), rememberedFlowerCuriosities);
+        decodeBlockPositions(input.getStringOr("PatchesRememberedLowBlocks", ""), rememberedLowBlockCuriosities);
         decodeAxolotlMemory(input.getStringOr("PatchesRememberedAxolotls", ""));
         decodeBlockPositions(input.getStringOr("PatchesRememberedDiamonds", ""), rememberedDiamondCuriosities);
         expressionOverrideTicks = 0; updateExpression();
