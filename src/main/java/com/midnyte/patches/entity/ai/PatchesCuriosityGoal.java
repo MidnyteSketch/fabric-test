@@ -9,7 +9,9 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.animal.axolotl.Axolotl;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -87,13 +89,13 @@ public final class PatchesCuriosityGoal extends Goal {
         }
 
         switch (targetKind) {
-            case FLOWER -> tickFlower();
+            case FLOWER, LOW_BLOCK -> tickLowBlock();
             case AXOLOTL -> tickAxolotl();
             case DIAMOND -> tickDiamond();
         }
     }
 
-    private void tickFlower() {
+    private void tickLowBlock() {
         Vec3 center = Vec3.atCenterOf(blockTarget);
         switch (phase) {
             case NOTICE -> { patches.setActivityExpression(PatchesExpression.SURPRISED); lookAt(center); if (--phaseTicks <= 0) enterApproach(); }
@@ -101,23 +103,23 @@ public final class PatchesCuriosityGoal extends Goal {
                 patches.setActivityExpression(PatchesExpression.SURPRISED); lookAt(center);
                 if (Math.sqrt(patches.distanceToSqr(center)) <= FLOWER_APPROACH_DISTANCE) {
                     patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = FLOWER_INSPECT_TICKS;
-                    report("INSPECT", "Reached flower; taking a closer look.");
+                    report("INSPECT", "Reached " + targetName() + "; taking a closer look.");
                 } else if (patches.getNavigation().isDone() || patches.tickCount % 10 == 0) patches.getNavigation().moveTo(center.x, center.y, center.z, APPROACH_SPEED);
             }
             case INSPECT -> {
                 patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.DEFAULT); lookAt(center.add(0.0, 0.15, 0.0));
-                if (--phaseTicks <= 0) { phase = Phase.SHARE_WAIT; phaseTicks = FLOWER_SHARE_WAIT_TICKS; report("SHARE WAIT", "Finished inspecting; quietly waiting to see if player comes over."); }
+                if (--phaseTicks <= 0) { phase = Phase.SHARE_WAIT; phaseTicks = FLOWER_SHARE_WAIT_TICKS; report("SHARE WAIT", "Finished inspecting; quietly enjoying " + targetName() + "."); }
             }
             case SHARE_WAIT -> {
                 patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.DEFAULT); lookAt(center.add(0.0, 0.15, 0.0));
                 Player player = relevantPlayer();
-                if (player != null && patches.distanceTo(player) <= SHARE_PLAYER_DISTANCE) { phase = Phase.SHARE_REACTION; phaseTicks = SHARE_REACTION_TICKS; report("SHARE REACTION", "Player came to see the flower; showing Joy."); }
-                else if (--phaseTicks <= 0) { report("COMPLETE", "Player did not join; finished enjoying the flower."); finish(true); }
+                if (player != null && patches.distanceTo(player) <= SHARE_PLAYER_DISTANCE) { phase = Phase.SHARE_REACTION; phaseTicks = SHARE_REACTION_TICKS; report("SHARE REACTION", "Player came over; sharing " + targetName() + " with Joy."); }
+                else if (--phaseTicks <= 0) { report("COMPLETE", "Finished enjoying " + targetName() + "."); finish(true); }
             }
             case SHARE_REACTION -> {
                 patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.JOY);
                 Player player = relevantPlayer(); if (player != null) patches.getLookControl().setLookAt(player, 20.0F, patches.getMaxHeadXRot());
-                if (--phaseTicks <= 0) { report("COMPLETE", "Finished sharing the flower; returning to normal behavior."); finish(true); }
+                if (--phaseTicks <= 0) { report("COMPLETE", "Finished sharing " + targetName() + "; returning to normal behavior."); finish(true); }
             }
             default -> { }
         }
@@ -221,6 +223,8 @@ public final class PatchesCuriosityGoal extends Goal {
         if (axolotl != null) { selectAxolotl(axolotl); return true; }
         BlockPos flower = findNearbyFlower();
         if (flower != null) { selectFlower(flower); return true; }
+        BlockPos lowBlock = findNearbyLowBlock();
+        if (lowBlock != null) { selectLowBlock(lowBlock); return true; }
         return false;
     }
 
@@ -237,6 +241,7 @@ public final class PatchesCuriosityGoal extends Goal {
     }
 
     private void selectFlower(BlockPos flower) { targetKind = TargetKind.FLOWER; targetPriority = PatchesCuriosityPriority.LOW; blockTarget = flower.immutable(); axolotlTarget = null; }
+    private void selectLowBlock(BlockPos pos) { targetKind = TargetKind.LOW_BLOCK; targetPriority = PatchesCuriosityPriority.LOW; blockTarget = pos.immutable(); axolotlTarget = null; }
     private void selectAxolotl(Axolotl axolotl) { targetKind = TargetKind.AXOLOTL; targetPriority = PatchesCuriosityPriority.MEDIUM; axolotlTarget = axolotl; blockTarget = null; }
     private void selectDiamond(BlockPos diamond) { targetKind = TargetKind.DIAMOND; targetPriority = PatchesCuriosityPriority.HIGH; blockTarget = diamond.immutable(); axolotlTarget = null; }
 
@@ -246,6 +251,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private void finish(boolean remember) {
         if (remember) {
             if (targetKind == TargetKind.FLOWER && blockTarget != null) patches.rememberFlowerCuriosity(blockTarget);
+            if (targetKind == TargetKind.LOW_BLOCK && blockTarget != null) patches.rememberLowBlockCuriosity(blockTarget);
             if (targetKind == TargetKind.AXOLOTL && axolotlTarget != null) patches.rememberAxolotlCuriosity(axolotlTarget.getUUID());
             if (targetKind == TargetKind.DIAMOND && blockTarget != null) patches.rememberDiamondCuriosity(blockTarget);
         }
@@ -255,6 +261,7 @@ public final class PatchesCuriosityGoal extends Goal {
 
     private boolean targetStillValid() {
         if (targetKind == TargetKind.FLOWER) return blockTarget != null && patches.level().getBlockState(blockTarget).is(BlockTags.FLOWERS);
+        if (targetKind == TargetKind.LOW_BLOCK) return blockTarget != null && isLowCuriosityBlock(blockTarget) && canSeeBlock(blockTarget);
         if (targetKind == TargetKind.DIAMOND) return blockTarget != null && isDiamondOre(blockTarget);
         return axolotlTarget != null && axolotlTarget.isAlive() && !axolotlTarget.isRemoved() && axolotlTarget.level() == patches.level();
     }
@@ -269,7 +276,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private BlockPos findNearbyFlower() {
         BlockPos origin = patches.blockPosition(); int radius = (int)Math.ceil(SCAN_RADIUS); BlockPos best = null; double bestDistance = Double.MAX_VALUE;
         for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-radius, -2, -radius), origin.offset(radius, 2, radius))) {
-            if (patches.hasRememberedFlowerCuriosity(pos) || !patches.level().getBlockState(pos).is(BlockTags.FLOWERS)) continue;
+            if (patches.hasRememberedFlowerCuriosity(pos) || !patches.level().getBlockState(pos).is(BlockTags.FLOWERS) || !canSeeBlock(pos)) continue;
             double distance = pos.distSqr(origin); if (distance > SCAN_RADIUS * SCAN_RADIUS || distance >= bestDistance) continue;
             best = pos.immutable(); bestDistance = distance;
         }
@@ -279,11 +286,40 @@ public final class PatchesCuriosityGoal extends Goal {
     private BlockPos findNearbyDiamond() {
         BlockPos origin = patches.blockPosition(); int radius = (int)Math.ceil(SCAN_RADIUS); BlockPos best = null; double bestDistance = Double.MAX_VALUE;
         for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-radius, -3, -radius), origin.offset(radius, 3, radius))) {
-            if (!isDiamondOre(pos) || patches.hasRememberedDiamondCuriosityNear(pos)) continue;
+            if (!isDiamondOre(pos) || patches.hasRememberedDiamondCuriosityNear(pos) || !canSeeBlock(pos)) continue;
             double distance = pos.distSqr(origin); if (distance > SCAN_RADIUS * SCAN_RADIUS || distance >= bestDistance) continue;
             best = pos.immutable(); bestDistance = distance;
         }
         return best;
+    }
+
+    private BlockPos findNearbyLowBlock() {
+        BlockPos origin = patches.blockPosition(); int radius = (int)Math.ceil(SCAN_RADIUS); BlockPos best = null; double bestDistance = Double.MAX_VALUE;
+        for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-radius, -2, -radius), origin.offset(radius, 2, radius))) {
+            if (patches.hasRememberedLowBlockCuriosity(pos) || !isLowCuriosityBlock(pos) || !canSeeBlock(pos)) continue;
+            double distance = pos.distSqr(origin); if (distance > SCAN_RADIUS * SCAN_RADIUS || distance >= bestDistance) continue;
+            best = pos.immutable(); bestDistance = distance;
+        }
+        return best;
+    }
+
+    private boolean isLowCuriosityBlock(BlockPos pos) {
+        var state = patches.level().getBlockState(pos);
+        if (state.is(Blocks.FIREFLY_BUSH)) return isExposedToAir(pos);
+        return state.is(Blocks.SMALL_DRIPLEAF) || state.is(Blocks.BIG_DRIPLEAF) || state.is(Blocks.FROGSPAWN)
+                || state.is(Blocks.TURTLE_EGG) || state.is(Blocks.SNIFFER_EGG);
+    }
+
+    private boolean isExposedToAir(BlockPos pos) {
+        for (var direction : net.minecraft.core.Direction.values()) if (patches.level().getBlockState(pos.relative(direction)).isAir()) return true;
+        return false;
+    }
+
+    private boolean canSeeBlock(BlockPos pos) {
+        Vec3 eye = patches.getEyePosition();
+        Vec3 center = Vec3.atCenterOf(pos);
+        BlockHitResult hit = patches.level().clip(new ClipContext(eye, center, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, patches));
+        return hit.getBlockPos().equals(pos);
     }
 
     private boolean isDiamondOre(BlockPos pos) { return patches.level().getBlockState(pos).is(Blocks.DIAMOND_ORE) || patches.level().getBlockState(pos).is(Blocks.DEEPSLATE_DIAMOND_ORE); }
@@ -291,9 +327,25 @@ public final class PatchesCuriosityGoal extends Goal {
     private Player relevantPlayer() { Player followed = patches.getFollowingPlayer(); if (followed != null) return followed; return patches.level().getNearestPlayer(patches, 12.0); }
     private void lookAt(Vec3 target) { patches.getLookControl().setLookAt(target.x, target.y, target.z, 20.0F, patches.getMaxHeadXRot()); }
     private void lookAtAxolotl() { patches.getLookControl().setLookAt(axolotlTarget, 20.0F, patches.getMaxHeadXRot()); }
-    private String targetName() { return switch (targetKind) { case AXOLOTL -> "an Axolotl"; case DIAMOND -> "Diamond Ore"; default -> "a flower"; }; }
+    private String targetName() {
+        return switch (targetKind) {
+            case AXOLOTL -> "an Axolotl";
+            case DIAMOND -> "Diamond Ore";
+            case LOW_BLOCK -> {
+                var state = patches.level().getBlockState(blockTarget);
+                if (state.is(Blocks.FIREFLY_BUSH)) yield "a Firefly Bush";
+                if (state.is(Blocks.SMALL_DRIPLEAF)) yield "Small Dripleaf";
+                if (state.is(Blocks.BIG_DRIPLEAF)) yield "Big Dripleaf";
+                if (state.is(Blocks.FROGSPAWN)) yield "Frogspawn";
+                if (state.is(Blocks.TURTLE_EGG)) yield "Turtle Eggs";
+                if (state.is(Blocks.SNIFFER_EGG)) yield "a Sniffer Egg";
+                yield "something interesting";
+            }
+            default -> "a flower";
+        };
+    }
     private void report(String state, String detail) { if (!DEBUG_CURIOSITY) return; Player player = relevantPlayer(); if (player != null) player.sendSystemMessage(Component.literal("[Patches] CURIOSITY: " + state + " — " + detail)); }
 
-    private enum TargetKind { FLOWER, AXOLOTL, DIAMOND }
+    private enum TargetKind { FLOWER, LOW_BLOCK, AXOLOTL, DIAMOND }
     private enum Phase { IDLE, NOTICE, APPROACH, INSPECT, SHARE_WAIT, PLAYER_INVITE, BECKON, SHARE_REACTION }
 }
