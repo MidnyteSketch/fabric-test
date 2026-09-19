@@ -32,6 +32,8 @@ public final class PatchesCuriosityGoal extends Goal {
     private static final int SHARE_REACTION_TICKS = 60;
     private static final double SCAN_RADIUS = 7.0;
     private static final double FLOWER_APPROACH_DISTANCE = 1.75;
+    private static final double LOW_BLOCK_HORIZONTAL_APPROACH_DISTANCE = 1.75;
+    private static final double LOW_BLOCK_MAX_VERTICAL_LOOK_DISTANCE = 4.0;
     private static final double DIAMOND_APPROACH_DISTANCE = 2.0;
     private static final double AXOLOTL_COMFORT_DISTANCE = 3.0;
     private static final double AXOLOTL_REPOSITION_DISTANCE = 4.0;
@@ -101,7 +103,7 @@ public final class PatchesCuriosityGoal extends Goal {
             case NOTICE -> { patches.setActivityExpression(PatchesExpression.SURPRISED); lookAt(center); if (--phaseTicks <= 0) enterApproach(); }
             case APPROACH -> {
                 patches.setActivityExpression(PatchesExpression.SURPRISED); lookAt(center);
-                if (Math.sqrt(patches.distanceToSqr(center)) <= FLOWER_APPROACH_DISTANCE) {
+                if (lowBlockReachedForInspection(center)) {
                     patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = FLOWER_INSPECT_TICKS;
                     report("INSPECT", "Reached " + targetName() + "; taking a closer look.");
                 } else if (patches.getNavigation().isDone() || patches.tickCount % 10 == 0) patches.getNavigation().moveTo(center.x, center.y, center.z, APPROACH_SPEED);
@@ -264,6 +266,15 @@ public final class PatchesCuriosityGoal extends Goal {
         if (targetKind == TargetKind.LOW_BLOCK) return blockTarget != null && isLowCuriosityBlock(blockTarget);
         if (targetKind == TargetKind.DIAMOND) return blockTarget != null && isDiamondOre(blockTarget);
         return axolotlTarget != null && axolotlTarget.isAlive() && !axolotlTarget.isRemoved() && axolotlTarget.level() == patches.level();
+    }
+
+    private boolean lowBlockReachedForInspection(Vec3 center) {
+        if (targetKind == TargetKind.FLOWER) return Math.sqrt(patches.distanceToSqr(center)) <= FLOWER_APPROACH_DISTANCE;
+        double dx = patches.getX() - center.x;
+        double dz = patches.getZ() - center.z;
+        double horizontalDistance = Math.sqrt(dx * dx + dz * dz);
+        double verticalDistance = Math.abs(patches.getEyeY() - center.y);
+        return horizontalDistance <= LOW_BLOCK_HORIZONTAL_APPROACH_DISTANCE && verticalDistance <= LOW_BLOCK_MAX_VERTICAL_LOOK_DISTANCE;
     }
 
     private void maintainAxolotlDistance() { double distance = patches.distanceTo(axolotlTarget); if (distance > AXOLOTL_REPOSITION_DISTANCE) patches.getNavigation().moveTo(axolotlTarget, APPROACH_SPEED); else patches.getNavigation().stop(); }
