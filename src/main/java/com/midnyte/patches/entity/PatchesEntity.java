@@ -50,6 +50,7 @@ public final class PatchesEntity extends PathfinderMob {
     private @Nullable UUID followingPlayerUuid;
     private int expressionOverrideTicks;
     private PatchesCuriosityGoal curiosityGoal;
+    private PatchesFollowGoal followGoal;
     private final Set<BlockPos> rememberedFlowerCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedLowBlockCuriosities = new HashSet<>();
     private final Set<UUID> rememberedAxolotlCuriosities = new HashSet<>();
@@ -72,7 +73,8 @@ public final class PatchesEntity extends PathfinderMob {
         this.goalSelector.addGoal(0, new FloatGoal(this));
         this.curiosityGoal = new PatchesCuriosityGoal(this);
         this.goalSelector.addGoal(1, this.curiosityGoal);
-        this.goalSelector.addGoal(2, new PatchesFollowGoal(this));
+        this.followGoal = new PatchesFollowGoal(this);
+        this.goalSelector.addGoal(2, this.followGoal);
         this.goalSelector.addGoal(3, new PatchesTemptGoal(this, 1.0, Ingredient.of(Items.COOKIE), false));
         this.goalSelector.addGoal(5, new RandomStrollGoal(this, 0.85));
         this.goalSelector.addGoal(6, new LookAtPlayerGoal(this, Player.class, 8.0F));
@@ -130,6 +132,13 @@ public final class PatchesEntity extends PathfinderMob {
 
     public @Nullable Player getFollowingPlayer() { if (followingPlayerUuid == null) return null; if (!(level() instanceof ServerLevel serverLevel)) return null; return serverLevel.getPlayerByUUID(followingPlayerUuid); }
     private void setFollowingPlayer(Player player) { this.followingPlayerUuid = player.getUUID(); }
+
+    public void requestRecallFromHorn(Player player) {
+        if (getMode() != PatchesMode.FOLLOWING) return;
+        if (followingPlayerUuid == null || !followingPlayerUuid.equals(player.getUUID())) return;
+        if (curiosityGoal != null) curiosityGoal.interruptForRecall();
+        if (followGoal != null) followGoal.requestRecall();
+    }
 
     @Override public void tick() { super.tick(); if (!level().isClientSide()) { if (getMode() == PatchesMode.SITTING) { this.getNavigation().stop(); this.setDeltaMovement(0.0, this.getDeltaMovement().y, 0.0); } updateExpression(); } }
     private void updateExpression() { if (expressionOverrideTicks > 0) { expressionOverrideTicks--; return; } if (getMode() == PatchesMode.SITTING) { setExpression(PatchesExpression.RESTING); return; } Player temptingPlayer = level().getNearestPlayer(this, COOKIE_NOTICE_RANGE); if (temptingPlayer != null && playerIsHoldingCookie(temptingPlayer)) { setExpression(PatchesExpression.SURPRISED); return; } setExpression(PatchesExpression.DEFAULT); }
