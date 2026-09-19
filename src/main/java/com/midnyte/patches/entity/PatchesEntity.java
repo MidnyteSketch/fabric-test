@@ -49,6 +49,7 @@ public final class PatchesEntity extends PathfinderMob {
     private PatchesMode modeBeforeSitting = PatchesMode.WANDERING;
     private @Nullable UUID followingPlayerUuid;
     private int expressionOverrideTicks;
+    private PatchesCuriosityGoal curiosityGoal;
     private final Set<BlockPos> rememberedFlowerCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedLowBlockCuriosities = new HashSet<>();
     private final Set<UUID> rememberedAxolotlCuriosities = new HashSet<>();
@@ -67,7 +68,8 @@ public final class PatchesEntity extends PathfinderMob {
 
     @Override protected void registerGoals() {
         this.goalSelector.addGoal(0, new FloatGoal(this));
-        this.goalSelector.addGoal(1, new PatchesCuriosityGoal(this));
+        this.curiosityGoal = new PatchesCuriosityGoal(this);
+        this.goalSelector.addGoal(1, this.curiosityGoal);
         this.goalSelector.addGoal(2, new PatchesFollowGoal(this));
         this.goalSelector.addGoal(3, new PatchesTemptGoal(this, 1.0, Ingredient.of(Items.COOKIE), false));
         this.goalSelector.addGoal(5, new RandomStrollGoal(this, 0.85));
@@ -136,6 +138,16 @@ public final class PatchesEntity extends PathfinderMob {
         if (BundleSupport.isBundle(stack)) { if (hasBundle()) return InteractionResult.FAIL; if (!level().isClientSide()) { setBundleStack(stack.copyWithCount(1)); if (!player.hasInfiniteMaterials()) stack.shrink(1); } return InteractionResult.SUCCESS; }
         if (stack.is(Items.SPYGLASS)) { if (hasSpyglass()) return InteractionResult.FAIL; if (!level().isClientSide()) { setSpyglassStack(stack.copyWithCount(1)); if (!player.hasInfiniteMaterials()) stack.shrink(1); } return InteractionResult.SUCCESS; }
         if (stack.isEmpty() && player.isShiftKeyDown()) { if (hasSpyglass()) { if (!level().isClientSide()) { ItemStack equipped = getSpyglassStack().copy(); setSpyglassStack(ItemStack.EMPTY); returnOrDrop(player, equipped); } return InteractionResult.SUCCESS; } if (hasBundle()) { if (!level().isClientSide()) { ItemStack equipped = getBundleStack().copy(); setBundleStack(ItemStack.EMPTY); returnOrDrop(player, equipped); } return InteractionResult.SUCCESS; } }
+        if (stack.is(Items.SUGAR)) {
+            if (!level().isClientSide()) {
+                if (curiosityGoal != null) curiosityGoal.resetCooldownForDebug();
+                consumeOne(player, stack);
+                setTimedExpression(PatchesExpression.MOUTH_OPEN, OTHER_FOOD_TICKS);
+                playSound(SoundEvents.GENERIC_EAT.value(), 0.7F, 1.2F);
+                player.sendSystemMessage(net.minecraft.network.chat.Component.literal("[Patches] DEBUG: Curiosity cooldown reset."));
+            }
+            return InteractionResult.SUCCESS;
+        }
         if (stack.is(Items.COOKIE)) { if (!level().isClientSide()) { setFollowingPlayer(player); if (getMode() == PatchesMode.WANDERING) setMode(PatchesMode.FOLLOWING); else if (getMode() == PatchesMode.FOLLOWING) setMode(PatchesMode.WANDERING); heal(2.0F); consumeOne(player, stack); setTimedExpression(PatchesExpression.LAUGH, COOKIE_LAUGH_TICKS); playSound(SoundEvents.GENERIC_EAT.value(), 0.7F, 1.15F); } return InteractionResult.SUCCESS; }
         if (stack.isEmpty()) { if (!level().isClientSide()) { if (getMode() == PatchesMode.SITTING) setMode(modeBeforeSitting); else { modeBeforeSitting = getMode(); setMode(PatchesMode.SITTING); } } return InteractionResult.SUCCESS; }
         if (isLikedFood(stack) && getHealth() < getMaxHealth()) { if (!level().isClientSide()) { float healing = stack.is(Items.MUSHROOM_STEW) ? 6.0F : stack.is(Items.APPLE) ? 3.0F : 2.0F; heal(healing); boolean stew = stack.is(Items.MUSHROOM_STEW); consumeOne(player, stack); setTimedExpression(PatchesExpression.MOUTH_OPEN, OTHER_FOOD_TICKS); if (stew && !player.hasInfiniteMaterials()) returnOrDrop(player, new ItemStack(Items.BOWL)); playSound(SoundEvents.GENERIC_EAT.value(), 0.7F, 1.05F); } return InteractionResult.SUCCESS; }
