@@ -47,6 +47,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private TargetKind targetKind;
     private PatchesCuriosityPriority targetPriority;
     private BlockPos blockTarget;
+    private BlockPos blockMemoryTarget;
     private Axolotl axolotlTarget;
     private WanderingTrader wanderingTraderTarget;
     private Phase phase = Phase.IDLE;
@@ -278,11 +279,16 @@ public final class PatchesCuriosityGoal extends Goal {
         return false;
     }
 
-    private void selectFlower(BlockPos flower) { targetKind = TargetKind.FLOWER; targetPriority = PatchesCuriosityPriority.LOW; blockTarget = flower.immutable(); axolotlTarget = null; }
-    private void selectLowBlock(BlockPos pos) { targetKind = TargetKind.LOW_BLOCK; targetPriority = PatchesCuriosityPriority.LOW; blockTarget = pos.immutable(); axolotlTarget = null; }
-    private void selectAxolotl(Axolotl axolotl) { targetKind = TargetKind.AXOLOTL; targetPriority = PatchesCuriosityPriority.MEDIUM; axolotlTarget = axolotl; wanderingTraderTarget = null; blockTarget = null; }
-    private void selectWanderingTrader(WanderingTrader trader) { targetKind = TargetKind.WANDERING_TRADER; targetPriority = PatchesCuriosityPriority.MEDIUM; wanderingTraderTarget = trader; axolotlTarget = null; blockTarget = null; }
-    private void selectDiamond(BlockPos diamond) { targetKind = TargetKind.DIAMOND; targetPriority = PatchesCuriosityPriority.HIGH; blockTarget = diamond.immutable(); axolotlTarget = null; }
+    private void selectFlower(BlockPos flower) { targetKind = TargetKind.FLOWER; targetPriority = PatchesCuriosityPriority.LOW; blockTarget = flower.immutable(); blockMemoryTarget = flower.immutable(); axolotlTarget = null; wanderingTraderTarget = null; }
+    private void selectLowBlock(BlockPos pos) {
+        targetKind = TargetKind.LOW_BLOCK; targetPriority = PatchesCuriosityPriority.LOW;
+        blockTarget = lowBlockVisibleTarget(pos);
+        blockMemoryTarget = canonicalLowBlockPos(blockTarget);
+        axolotlTarget = null; wanderingTraderTarget = null;
+    }
+    private void selectAxolotl(Axolotl axolotl) { targetKind = TargetKind.AXOLOTL; targetPriority = PatchesCuriosityPriority.MEDIUM; axolotlTarget = axolotl; wanderingTraderTarget = null; blockTarget = null; blockMemoryTarget = null; }
+    private void selectWanderingTrader(WanderingTrader trader) { targetKind = TargetKind.WANDERING_TRADER; targetPriority = PatchesCuriosityPriority.MEDIUM; wanderingTraderTarget = trader; axolotlTarget = null; blockTarget = null; blockMemoryTarget = null; }
+    private void selectDiamond(BlockPos diamond) { targetKind = TargetKind.DIAMOND; targetPriority = PatchesCuriosityPriority.HIGH; blockTarget = diamond.immutable(); blockMemoryTarget = diamond.immutable(); axolotlTarget = null; wanderingTraderTarget = null; }
 
     private void beginNotice() { phase = Phase.NOTICE; phaseTicks = 8; patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.SURPRISED); report("NOTICE", "Spotted " + targetName() + " (" + targetPriority + ")."); }
     private void enterApproach() { phase = Phase.APPROACH; report("APPROACH", "Going over to investigate " + targetName() + "."); }
@@ -290,12 +296,12 @@ public final class PatchesCuriosityGoal extends Goal {
     private void finish(boolean remember) {
         if (remember) {
             if (targetKind == TargetKind.FLOWER && blockTarget != null) patches.rememberFlowerCuriosity(blockTarget);
-            if (targetKind == TargetKind.LOW_BLOCK && blockTarget != null) patches.rememberLowBlockCuriosity(blockTarget);
+            if (targetKind == TargetKind.LOW_BLOCK && blockMemoryTarget != null) patches.rememberLowBlockCuriosity(blockMemoryTarget);
             if (targetKind == TargetKind.AXOLOTL && axolotlTarget != null) patches.rememberAxolotlCuriosity(axolotlTarget.getUUID());
             if (targetKind == TargetKind.WANDERING_TRADER && wanderingTraderTarget != null) patches.rememberWanderingTraderCuriosity(wanderingTraderTarget.getUUID());
             if (targetKind == TargetKind.DIAMOND && blockTarget != null) patches.rememberDiamondCuriosity(blockTarget);
         }
-        patches.getNavigation().stop(); patches.clearActivityExpression(); targetKind = null; targetPriority = null; blockTarget = null; axolotlTarget = null; wanderingTraderTarget = null;
+        patches.getNavigation().stop(); patches.clearActivityExpression(); targetKind = null; targetPriority = null; blockTarget = null; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null;
         phase = Phase.IDLE; phaseTicks = 0; cooldownTicks = GENERAL_COOLDOWN_TICKS; beckonCycleTicks = 0; beckonHops = 0;
     }
 
@@ -336,7 +342,7 @@ public final class PatchesCuriosityGoal extends Goal {
             BlockPos curiosityPos = canonicalLowBlockPos(pos);
             if (patches.hasRememberedFlowerCuriosity(curiosityPos)) continue;
             double distance = curiosityPos.distSqr(origin); if (distance > SCAN_RADIUS * SCAN_RADIUS || distance >= bestDistance) continue;
-            best = curiosityPos; bestDistance = distance;
+            best = pos.immutable(); bestDistance = distance;
         }
         return best;
     }
@@ -373,6 +379,15 @@ public final class PatchesCuriosityGoal extends Goal {
         BlockPos canonical = pos.immutable();
         while (patches.level().getBlockState(canonical.below()).getBlock() == block) canonical = canonical.below();
         return canonical;
+    }
+
+    private BlockPos lowBlockVisibleTarget(BlockPos pos) {
+        if (patches.level().getBlockState(pos).is(Blocks.BIG_DRIPLEAF_STEM)) {
+            BlockPos cursor = pos;
+            while (patches.level().getBlockState(cursor).is(Blocks.BIG_DRIPLEAF_STEM)) cursor = cursor.above();
+            if (patches.level().getBlockState(cursor).is(Blocks.BIG_DRIPLEAF)) return cursor.immutable();
+        }
+        return pos.immutable();
     }
 
     private BlockPos canonicalLowBlockPos(BlockPos pos) {
