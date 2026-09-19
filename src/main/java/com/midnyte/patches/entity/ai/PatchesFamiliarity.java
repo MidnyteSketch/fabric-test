@@ -13,7 +13,7 @@ public final class PatchesFamiliarity {
 
     private static final double MAX_SCORE = 8.0;
     private static final double GRACE = 3.0;
-    private static final long DECAY_TICKS = 1200;
+    private static final long DECAY_TICKS = 6000;
     private static final long DECISION_TICKS = 200;
     private final EnumMap<Category, Entry> entries = new EnumMap<>(Category.class);
 

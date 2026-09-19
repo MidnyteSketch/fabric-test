@@ -34,7 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.HashSet;
 import java.util.Set;
-import net.minecraft.world.entity.animal.horse.TraderLlama;
+import net.minecraft.world.entity.animal.equine.TraderLlama;
 import net.minecraft.world.level.pathfinder.PathType;
 import net.minecraft.world.level.pathfinder.WalkNodeEvaluator;
 
@@ -100,7 +100,7 @@ public final class PatchesCuriosityGoal extends Goal {
 
     public void resetCooldownForDebug() {
         cooldownTicks = 0; scanTicks = SCAN_INTERVAL_TICKS; nextDiscoveryScan = 0; nextGeodeScan = 0;
-        report("FAMILIARITY", familiarity.describe(patches.level().getGameTime()) + "; decays 1/minute, resets on reload; exact memories unchanged.");
+        report("FAMILIARITY", familiarity.describe(patches.level().getGameTime()) + "; decays 1 per 5 minutes, resets on reload; exact memories unchanged.");
         report("DISCOVERY", discovery ? "Active lead: " + phase : discoveryReady() ? "Armed: Spyglass + Following; search radius 18." : "Inactive: requires Spyglass, Following, and player within 6 blocks.");
     }
     public void interruptForRecall() { if (phase != Phase.IDLE) finish(false); }
@@ -587,7 +587,12 @@ public final class PatchesCuriosityGoal extends Goal {
         }
     }
 
-    @Override public void stop() { if (phase != Phase.IDLE) finish(false); }
+    @Override public void stop() {
+        if (phase != Phase.IDLE) {
+            if (discovery) report("DISCOVERY STOP", "Command or higher-priority goal took over; clearing lead.");
+            finish(false);
+        }
+    }
 
     private boolean chooseBestNearbyTarget() {
         Allay trappedAllay = findNearbyTrappedAllay();
@@ -676,7 +681,7 @@ public final class PatchesCuriosityGoal extends Goal {
         if (remember) {
             if (targetKind == TargetKind.GEODE && geode != null) patches.rememberGeode(geode);
             double score = familiarity.record(currentCategory(), patches.level().getGameTime());
-            report("FAMILIARITY", currentCategory() + " completed; score=" + String.format(java.util.Locale.ROOT, "%.2f", score) + "/8 (decays 1/minute).");
+            report("FAMILIARITY", currentCategory() + " completed; score=" + String.format(java.util.Locale.ROOT, "%.2f", score) + "/8 (decays 1 per 5 minutes).");
             if (targetKind == TargetKind.FLOWER && blockTarget != null) patches.rememberFlowerCuriosity(blockTarget);
             if (targetKind == TargetKind.LOW_BLOCK && blockMemoryTarget != null) patches.rememberLowBlockCuriosity(blockMemoryTarget);
             if ((targetKind == TargetKind.AXOLOTL || targetKind == TargetKind.BLUE_AXOLOTL) && axolotlTarget != null) patches.rememberAxolotlCuriosity(axolotlTarget.getUUID());
@@ -1221,7 +1226,7 @@ public final class PatchesCuriosityGoal extends Goal {
 
     private boolean discoveryReady() {
         Player player = patches.getFollowingPlayer();
-        return patches.hasSpyglass() && patches.getMode() == PatchesMode.FOLLOWING && !patches.isSleeping()
+        return patches.hasSpyglass() && !patches.isFollowRejoining() && patches.getMode() == PatchesMode.FOLLOWING && !patches.isSleeping()
                 && player != null && player.isAlive() && !player.isSpectator() && patches.distanceTo(player) <= 6.0;
     }
 

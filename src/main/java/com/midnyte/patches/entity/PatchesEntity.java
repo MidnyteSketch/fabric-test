@@ -149,6 +149,8 @@ public final class PatchesEntity extends PathfinderMob {
     public @Nullable Player getFollowingPlayer() { if (followingPlayerUuid == null) return null; if (!(level() instanceof ServerLevel serverLevel)) return null; return serverLevel.getPlayerByUUID(followingPlayerUuid); }
     private void setFollowingPlayer(Player player) { this.followingPlayerUuid = player.getUUID(); }
 
+    public boolean isFollowRejoining() { return followGoal != null && followGoal.isRejoining(); }
+
     public void requestRecallFromHorn(Player player) {
         if (getMode() != PatchesMode.FOLLOWING) return;
         if (followingPlayerUuid == null || !followingPlayerUuid.equals(player.getUUID())) return;
