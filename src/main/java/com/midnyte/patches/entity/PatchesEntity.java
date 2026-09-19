@@ -55,6 +55,7 @@ public final class PatchesEntity extends PathfinderMob {
     private final Set<UUID> rememberedAxolotlCuriosities = new HashSet<>();
     private final Set<UUID> rememberedWanderingTraderCuriosities = new HashSet<>();
     private final Set<UUID> rememberedSnifferCuriosities = new HashSet<>();
+    private final Set<UUID> rememberedLootVehicleCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedArchaeologyCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedLootContainerCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedDiamondCuriosities = new HashSet<>();
@@ -100,6 +101,8 @@ public final class PatchesEntity extends PathfinderMob {
     public boolean hasRememberedWanderingTraderCuriosity(UUID uuid) { return rememberedWanderingTraderCuriosities.contains(uuid); }
     public void rememberSnifferCuriosity(UUID uuid) { rememberedSnifferCuriosities.add(uuid); }
     public boolean hasRememberedSnifferCuriosity(UUID uuid) { return rememberedSnifferCuriosities.contains(uuid); }
+    public void rememberLootVehicleCuriosity(UUID uuid) { rememberedLootVehicleCuriosities.add(uuid); }
+    public boolean hasRememberedLootVehicleCuriosity(UUID uuid) { return rememberedLootVehicleCuriosities.contains(uuid); }
     public void rememberArchaeologyCuriosity(BlockPos pos) { rememberedArchaeologyCuriosities.add(pos.immutable()); }
     public boolean hasRememberedArchaeologyCuriosity(BlockPos pos) { return rememberedArchaeologyCuriosities.contains(pos); }
     public void rememberLootContainerCuriosity(BlockPos pos) { rememberedLootContainerCuriosities.add(pos.immutable()); }
@@ -172,6 +175,8 @@ public final class PatchesEntity extends PathfinderMob {
     private void decodeWanderingTraderMemory(String encoded) { rememberedWanderingTraderCuriosities.clear(); if (encoded.isEmpty()) return; for (String entry : encoded.split(";")) { try { rememberedWanderingTraderCuriosities.add(UUID.fromString(entry)); } catch (IllegalArgumentException ignored) { } } }
     private String encodeSnifferMemory() { StringBuilder encoded = new StringBuilder(); for (UUID uuid : rememberedSnifferCuriosities) { if (!encoded.isEmpty()) encoded.append(';'); encoded.append(uuid); } return encoded.toString(); }
     private void decodeSnifferMemory(String encoded) { rememberedSnifferCuriosities.clear(); if (encoded.isEmpty()) return; for (String entry : encoded.split(";")) { try { rememberedSnifferCuriosities.add(UUID.fromString(entry)); } catch (IllegalArgumentException ignored) { } } }
+    private String encodeLootVehicleMemory() { StringBuilder encoded = new StringBuilder(); for (UUID uuid : rememberedLootVehicleCuriosities) { if (!encoded.isEmpty()) encoded.append(';'); encoded.append(uuid); } return encoded.toString(); }
+    private void decodeLootVehicleMemory(String encoded) { rememberedLootVehicleCuriosities.clear(); if (encoded.isEmpty()) return; for (String entry : encoded.split(";")) { try { rememberedLootVehicleCuriosities.add(UUID.fromString(entry)); } catch (IllegalArgumentException ignored) { } } }
 
     @Override protected void addAdditionalSaveData(ValueOutput output) {
         super.addAdditionalSaveData(output); output.putInt("PatchesMode", getMode().id()); output.putInt("PatchesModeBeforeSitting", modeBeforeSitting.id()); output.storeNullable("PatchesFollowingPlayer", UUIDUtil.CODEC, followingPlayerUuid);
@@ -182,6 +187,7 @@ public final class PatchesEntity extends PathfinderMob {
         output.putString("PatchesRememberedAxolotls", encodeAxolotlMemory());
         output.putString("PatchesRememberedWanderingTraders", encodeWanderingTraderMemory());
         output.putString("PatchesRememberedSniffers", encodeSnifferMemory());
+        output.putString("PatchesRememberedLootVehicles", encodeLootVehicleMemory());
         output.putString("PatchesRememberedArchaeology", encodeBlockPositions(rememberedArchaeologyCuriosities));
         output.putString("PatchesRememberedLootContainers", encodeBlockPositions(rememberedLootContainerCuriosities));
         output.putString("PatchesRememberedDiamonds", encodeBlockPositions(rememberedDiamondCuriosities));
@@ -198,6 +204,7 @@ public final class PatchesEntity extends PathfinderMob {
         decodeAxolotlMemory(input.getStringOr("PatchesRememberedAxolotls", ""));
         decodeWanderingTraderMemory(input.getStringOr("PatchesRememberedWanderingTraders", ""));
         decodeSnifferMemory(input.getStringOr("PatchesRememberedSniffers", ""));
+        decodeLootVehicleMemory(input.getStringOr("PatchesRememberedLootVehicles", ""));
         decodeBlockPositions(input.getStringOr("PatchesRememberedArchaeology", ""), rememberedArchaeologyCuriosities);
         decodeBlockPositions(input.getStringOr("PatchesRememberedLootContainers", ""), rememberedLootContainerCuriosities);
         decodeBlockPositions(input.getStringOr("PatchesRememberedDiamonds", ""), rememberedDiamondCuriosities);
