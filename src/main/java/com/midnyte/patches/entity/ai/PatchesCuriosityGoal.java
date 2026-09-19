@@ -273,7 +273,7 @@ public final class PatchesCuriosityGoal extends Goal {
     }
 
     private void tickTrappedAllay() {
-        if (!isAllayConfined(trappedAllayTarget)) {
+        if (!isAllayConfined(trappedAllayTarget) && phase != Phase.SHARE_REACTION) {
             patches.getNavigation().stop();
             phase = Phase.SHARE_REACTION;
             phaseTicks = SHARE_REACTION_TICKS;
