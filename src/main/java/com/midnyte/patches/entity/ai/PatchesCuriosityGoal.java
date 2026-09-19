@@ -8,11 +8,14 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.animal.allay.Allay;
 import net.minecraft.world.entity.animal.axolotl.Axolotl;
+import net.minecraft.world.entity.animal.sheep.Sheep;
 import net.minecraft.world.entity.animal.sniffer.Sniffer;
 import net.minecraft.world.entity.npc.wanderingtrader.WanderingTrader;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.entity.vehicle.ContainerEntity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
@@ -21,6 +24,7 @@ import net.minecraft.world.level.block.entity.BrushableBlockEntity;
 import net.minecraft.world.level.block.entity.RandomizableContainerBlockEntity;
 import net.minecraft.world.level.block.state.properties.ChestType;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -59,6 +63,8 @@ public final class PatchesCuriosityGoal extends Goal {
     private Axolotl axolotlTarget;
     private WanderingTrader wanderingTraderTarget;
     private Sniffer snifferTarget;
+    private Sheep pinkSheepTarget;
+    private Allay trappedAllayTarget;
     private Entity lootVehicleTarget;
     private Phase phase = Phase.IDLE;
     private int phaseTicks;
@@ -110,6 +116,8 @@ public final class PatchesCuriosityGoal extends Goal {
             case FLOWER, LOW_BLOCK -> tickLowBlock();
             case AXOLOTL -> tickAxolotl();
             case BLUE_AXOLOTL -> tickBlueAxolotl();
+            case TRAPPED_ALLAY -> tickTrappedAllay();
+            case PINK_SHEEP -> tickPinkSheep();
             case SNIFFER -> tickSniffer();
             case ARCHAEOLOGY -> tickArchaeology();
             case LOOT_CONTAINER -> tickLootContainer();
@@ -231,6 +239,109 @@ public final class PatchesCuriosityGoal extends Goal {
         }
         if (--phaseTicks <= 0) {
             report("COMPLETE", "Player did not come over; remembered the rare Blue Axolotl.");
+            finish(true);
+        }
+    }
+
+    private void tickPinkSheep() {
+        double distance = patches.distanceTo(pinkSheepTarget);
+        if (distance > AXOLOTL_ABANDON_DISTANCE) { report("INTERRUPTED", "Pink Sheep moved too far away to keep following."); finish(false); return; }
+        switch (phase) {
+            case NOTICE -> { patches.setActivityExpression(PatchesExpression.SURPRISED); lookAtPinkSheep(); if (--phaseTicks <= 0) enterApproach(); }
+            case APPROACH -> {
+                patches.setActivityExpression(PatchesExpression.SURPRISED); lookAtPinkSheep();
+                if (distance <= AXOLOTL_COMFORT_DISTANCE) { patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = AXOLOTL_INSPECT_TICKS; report("INSPECT", "Reached Pink Sheep; admiring its unusual wool."); }
+                else if (patches.getNavigation().isDone() || patches.tickCount % 10 == 0) patches.getNavigation().moveTo(pinkSheepTarget, APPROACH_SPEED);
+            }
+            case INSPECT -> {
+                maintainPinkSheepDistance(); patches.setActivityExpression(PatchesExpression.DEFAULT); lookAtPinkSheep();
+                if (--phaseTicks <= 0) { phase = Phase.PLAYER_INVITE; phaseTicks = AXOLOTL_INVITE_TICKS; report("PLAYER INVITE", "Looking to player to show off the Pink Sheep."); }
+            }
+            case PLAYER_INVITE -> {
+                maintainPinkSheepDistance(); patches.setActivityExpression(PatchesExpression.DEFAULT); Player player = relevantPlayer();
+                if (player != null && patches.distanceTo(player) <= SHARE_PLAYER_DISTANCE) { phase = Phase.SHARE_REACTION; phaseTicks = SHARE_REACTION_TICKS; report("SHARE REACTION", "Player came over; sharing the Pink Sheep encounter."); return; }
+                if (player != null && (phaseTicks / 20) % 2 == 0) patches.getLookControl().setLookAt(player, 20.0F, patches.getMaxHeadXRot()); else lookAtPinkSheep();
+                if (--phaseTicks <= 0) { report("COMPLETE", "Player did not join; remembered the Pink Sheep."); finish(true); }
+            }
+            case SHARE_REACTION -> {
+                maintainPinkSheepDistance(); patches.setActivityExpression(PatchesExpression.CONTENT); Player player = relevantPlayer();
+                if (player != null && (phaseTicks / 20) % 2 == 0) patches.getLookControl().setLookAt(player, 20.0F, patches.getMaxHeadXRot()); else lookAtPinkSheep();
+                if (--phaseTicks <= 0) { report("COMPLETE", "Finished sharing the Pink Sheep encounter."); finish(true); }
+            }
+            default -> { }
+        }
+    }
+
+    private void tickTrappedAllay() {
+        if (!isAllayConfined(trappedAllayTarget)) {
+            patches.getNavigation().stop();
+            phase = Phase.SHARE_REACTION;
+            phaseTicks = SHARE_REACTION_TICKS;
+            patches.setActivityExpression(PatchesExpression.JOY);
+            report("SHARE REACTION", "The Allay is no longer confined; reacting happily to the rescue.");
+        }
+
+        switch (phase) {
+            case NOTICE -> { patches.setActivityExpression(PatchesExpression.SURPRISED); lookAtTrappedAllay(); if (--phaseTicks <= 0) enterApproach(); }
+            case APPROACH -> {
+                patches.setActivityExpression(PatchesExpression.SURPRISED); lookAtTrappedAllay();
+                Vec3 observation = Vec3.atCenterOf(blockTarget);
+                if (Math.sqrt(patches.distanceToSqr(observation)) <= VALUABLE_APPROACH_DISTANCE) {
+                    patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = VALUABLE_INSPECT_TICKS;
+                    report("INSPECT", "Reached the outside of the Allay's enclosure; checking on it.");
+                } else if (patches.getNavigation().isDone() || patches.tickCount % 10 == 0) {
+                    patches.getNavigation().moveTo(observation.x, observation.y, observation.z, APPROACH_SPEED);
+                }
+            }
+            case INSPECT -> {
+                patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.SURPRISED); lookAtTrappedAllay();
+                if (--phaseTicks <= 0) {
+                    phase = Phase.BECKON; phaseTicks = VALUABLE_BECKON_TICKS; beckonCycleTicks = 0; beckonHops = 0;
+                    report("BECKON", "The Allay is trapped; urgently calling the player over to help.");
+                }
+            }
+            case BECKON -> tickTrappedAllayBeckon();
+            case SHARE_REACTION -> {
+                patches.getNavigation().stop();
+                boolean rescued = !isAllayConfined(trappedAllayTarget);
+                patches.setActivityExpression(rescued ? PatchesExpression.JOY : PatchesExpression.CONTENT);
+                Player player = relevantPlayer();
+                if (player != null && !rescued && (phaseTicks / 20) % 2 == 0) patches.getLookControl().setLookAt(player, 24.0F, patches.getMaxHeadXRot());
+                else lookAtTrappedAllay();
+                if (--phaseTicks <= 0) {
+                    report("COMPLETE", rescued ? "Finished reacting to the freed Allay." : "Player came over; leaving the trapped Allay in their attention.");
+                    finish(true);
+                }
+            }
+            default -> { }
+        }
+    }
+
+    private void tickTrappedAllayBeckon() {
+        patches.getNavigation().stop();
+        patches.setActivityExpression(PatchesExpression.SURPRISED);
+        Player player = relevantPlayer();
+        if (player != null && patches.distanceTo(player) <= SHARE_PLAYER_DISTANCE) {
+            phase = Phase.SHARE_REACTION; phaseTicks = SHARE_REACTION_TICKS;
+            report("SHARE REACTION", "Player arrived at the enclosure; keeping attention on the trapped Allay.");
+            return;
+        }
+
+        int cycle = beckonCycleTicks++ % 60;
+        if (cycle < 38 && player != null) {
+            patches.getLookControl().setLookAt(player, 30.0F, patches.getMaxHeadXRot());
+            if ((cycle == 4 || cycle == 18) && patches.onGround() && beckonHops < 2) {
+                Vec3 motion = patches.getDeltaMovement();
+                patches.setDeltaMovement(motion.x, 0.34, motion.z);
+                beckonHops++;
+            }
+        } else {
+            lookAtTrappedAllay();
+            if (cycle == 59) beckonHops = 0;
+        }
+
+        if (--phaseTicks <= 0) {
+            report("COMPLETE", "Player did not come over; remembered the trapped Allay.");
             finish(true);
         }
     }
@@ -447,6 +558,8 @@ public final class PatchesCuriosityGoal extends Goal {
     @Override public void stop() { if (phase != Phase.IDLE) finish(false); }
 
     private boolean chooseBestNearbyTarget() {
+        Allay trappedAllay = findNearbyTrappedAllay();
+        if (trappedAllay != null) { selectTrappedAllay(trappedAllay); return true; }
         Axolotl blueAxolotl = findNearbyBlueAxolotl();
         if (blueAxolotl != null) { selectBlueAxolotl(blueAxolotl); return true; }
         BlockPos valuable = findNearbyValuableBlock();
@@ -457,6 +570,8 @@ public final class PatchesCuriosityGoal extends Goal {
         if (trader != null) { selectWanderingTrader(trader); return true; }
         Sniffer sniffer = findNearbySniffer();
         if (sniffer != null) { selectSniffer(sniffer); return true; }
+        Sheep pinkSheep = findNearbyPinkSheep();
+        if (pinkSheep != null) { selectPinkSheep(pinkSheep); return true; }
         BlockPos archaeology = findNearbyArchaeology();
         if (archaeology != null) { selectArchaeology(archaeology); return true; }
         BlockPos lootContainer = findNearbyLootContainer();
@@ -472,6 +587,8 @@ public final class PatchesCuriosityGoal extends Goal {
 
     private boolean tryUpgradeTarget() {
         if (targetPriority != PatchesCuriosityPriority.HIGH) {
+            Allay trappedAllay = findNearbyTrappedAllay();
+            if (trappedAllay != null) { report("PRIORITY", "A trapped Allay needs help; switching targets."); selectTrappedAllay(trappedAllay); beginNotice(); return true; }
             Axolotl blueAxolotl = findNearbyBlueAxolotl();
             if (blueAxolotl != null) { report("PRIORITY", "A rare Blue Axolotl outranks the current curiosity; switching targets."); selectBlueAxolotl(blueAxolotl); beginNotice(); return true; }
             BlockPos valuable = findNearbyValuableBlock();
@@ -484,6 +601,8 @@ public final class PatchesCuriosityGoal extends Goal {
             if (trader != null) { report("PRIORITY", "A Wandering Trader is more interesting than the current low curiosity; switching targets."); selectWanderingTrader(trader); beginNotice(); return true; }
             Sniffer sniffer = findNearbySniffer();
             if (sniffer != null) { report("PRIORITY", "A Sniffer is more interesting than the current low curiosity; switching targets."); selectSniffer(sniffer); beginNotice(); return true; }
+            Sheep pinkSheep = findNearbyPinkSheep();
+            if (pinkSheep != null) { report("PRIORITY", "A Pink Sheep is more interesting than the current low curiosity; switching targets."); selectPinkSheep(pinkSheep); beginNotice(); return true; }
             BlockPos archaeology = findNearbyArchaeology();
             if (archaeology != null) { report("PRIORITY", "An archaeology find is more interesting than the current low curiosity; switching targets."); selectArchaeology(archaeology); beginNotice(); return true; }
             BlockPos lootContainer = findNearbyLootContainer();
@@ -504,7 +623,14 @@ public final class PatchesCuriosityGoal extends Goal {
     private void selectBlueAxolotl(Axolotl axolotl) { targetKind = TargetKind.BLUE_AXOLOTL; targetPriority = PatchesCuriosityPriority.HIGH; axolotlTarget = axolotl; wanderingTraderTarget = null; snifferTarget = null; blockTarget = null; blockMemoryTarget = null; }
     private void selectAxolotl(Axolotl axolotl) { targetKind = TargetKind.AXOLOTL; targetPriority = PatchesCuriosityPriority.MEDIUM; axolotlTarget = axolotl; wanderingTraderTarget = null; blockTarget = null; blockMemoryTarget = null; }
     private void selectWanderingTrader(WanderingTrader trader) { targetKind = TargetKind.WANDERING_TRADER; targetPriority = PatchesCuriosityPriority.MEDIUM; wanderingTraderTarget = trader; axolotlTarget = null; snifferTarget = null; blockTarget = null; blockMemoryTarget = null; }
-    private void selectSniffer(Sniffer sniffer) { targetKind = TargetKind.SNIFFER; targetPriority = PatchesCuriosityPriority.MEDIUM; snifferTarget = sniffer; axolotlTarget = null; wanderingTraderTarget = null; blockTarget = null; blockMemoryTarget = null; }
+    private void selectSniffer(Sniffer sniffer) { targetKind = TargetKind.SNIFFER; targetPriority = PatchesCuriosityPriority.MEDIUM; snifferTarget = sniffer; axolotlTarget = null; wanderingTraderTarget = null; pinkSheepTarget = null; trappedAllayTarget = null; blockTarget = null; blockMemoryTarget = null; }
+    private void selectPinkSheep(Sheep sheep) { targetKind = TargetKind.PINK_SHEEP; targetPriority = PatchesCuriosityPriority.MEDIUM; pinkSheepTarget = sheep; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; trappedAllayTarget = null; lootVehicleTarget = null; blockTarget = null; blockMemoryTarget = null; }
+    private void selectTrappedAllay(Allay allay) {
+        BlockPos observation = findAllayObservationPoint(allay);
+        if (observation == null) return;
+        targetKind = TargetKind.TRAPPED_ALLAY; targetPriority = PatchesCuriosityPriority.HIGH; trappedAllayTarget = allay;
+        blockTarget = observation; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; pinkSheepTarget = null; lootVehicleTarget = null;
+    }
     private void selectArchaeology(BlockPos pos) { targetKind = TargetKind.ARCHAEOLOGY; targetPriority = PatchesCuriosityPriority.MEDIUM; blockTarget = pos.immutable(); blockMemoryTarget = pos.immutable(); axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; }
     private void selectLootContainer(BlockPos pos) { targetKind = TargetKind.LOOT_CONTAINER; targetPriority = PatchesCuriosityPriority.MEDIUM; blockTarget = pos.immutable(); blockMemoryTarget = canonicalLootContainerPos(pos); axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; lootVehicleTarget = null; }
     private void selectLootVehicle(Entity vehicle) { targetKind = TargetKind.LOOT_VEHICLE; targetPriority = PatchesCuriosityPriority.MEDIUM; lootVehicleTarget = vehicle; blockTarget = null; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; }
@@ -519,13 +645,15 @@ public final class PatchesCuriosityGoal extends Goal {
             if (targetKind == TargetKind.LOW_BLOCK && blockMemoryTarget != null) patches.rememberLowBlockCuriosity(blockMemoryTarget);
             if ((targetKind == TargetKind.AXOLOTL || targetKind == TargetKind.BLUE_AXOLOTL) && axolotlTarget != null) patches.rememberAxolotlCuriosity(axolotlTarget.getUUID());
             if (targetKind == TargetKind.WANDERING_TRADER && wanderingTraderTarget != null) patches.rememberWanderingTraderCuriosity(wanderingTraderTarget.getUUID());
+            if (targetKind == TargetKind.PINK_SHEEP && pinkSheepTarget != null) patches.rememberPinkSheepCuriosity(pinkSheepTarget.getUUID());
+            if (targetKind == TargetKind.TRAPPED_ALLAY && trappedAllayTarget != null) patches.rememberTrappedAllayCuriosity(trappedAllayTarget.getUUID());
             if (targetKind == TargetKind.SNIFFER && snifferTarget != null) patches.rememberSnifferCuriosity(snifferTarget.getUUID());
             if (targetKind == TargetKind.ARCHAEOLOGY && blockTarget != null) patches.rememberArchaeologyCuriosity(blockTarget);
             if (targetKind == TargetKind.LOOT_CONTAINER && blockMemoryTarget != null) patches.rememberLootContainerCuriosity(blockMemoryTarget);
             if (targetKind == TargetKind.LOOT_VEHICLE && lootVehicleTarget != null) patches.rememberLootVehicleCuriosity(lootVehicleTarget.getUUID());
             if (targetKind == TargetKind.VALUABLE_BLOCK && blockTarget != null) patches.rememberValuableCuriosity(valuableKind(blockTarget), blockTarget);
         }
-        patches.getNavigation().stop(); patches.clearActivityExpression(); targetKind = null; targetPriority = null; blockTarget = null; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; lootVehicleTarget = null;
+        patches.getNavigation().stop(); patches.clearActivityExpression(); targetKind = null; targetPriority = null; blockTarget = null; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; pinkSheepTarget = null; trappedAllayTarget = null; lootVehicleTarget = null;
         phase = Phase.IDLE; phaseTicks = 0; cooldownTicks = GENERAL_COOLDOWN_TICKS; beckonCycleTicks = 0; beckonHops = 0;
     }
 
@@ -538,6 +666,8 @@ public final class PatchesCuriosityGoal extends Goal {
         if (targetKind == TargetKind.ARCHAEOLOGY) return blockTarget != null && isUnresolvedArchaeology(blockTarget);
         if (targetKind == TargetKind.LOOT_CONTAINER) return blockTarget != null && isUnresolvedLootContainer(blockTarget);
         if (targetKind == TargetKind.LOOT_VEHICLE) return lootVehicleTarget != null && lootVehicleTarget.isAlive() && !lootVehicleTarget.isRemoved() && lootVehicleTarget.level() == patches.level() && hasUnresolvedVehicleLoot(lootVehicleTarget);
+        if (targetKind == TargetKind.PINK_SHEEP) return pinkSheepTarget != null && pinkSheepTarget.isAlive() && pinkSheepTarget.getColor() == DyeColor.PINK;
+        if (targetKind == TargetKind.TRAPPED_ALLAY) return trappedAllayTarget != null && trappedAllayTarget.isAlive() && !trappedAllayTarget.isRemoved() && trappedAllayTarget.level() == patches.level();
         if (targetKind == TargetKind.BLUE_AXOLOTL) return axolotlTarget != null && axolotlTarget.isAlive() && !axolotlTarget.isRemoved() && axolotlTarget.level() == patches.level() && isBlueAxolotl(axolotlTarget);
         return axolotlTarget != null && axolotlTarget.isAlive() && !axolotlTarget.isRemoved() && axolotlTarget.level() == patches.level();
     }
@@ -554,7 +684,104 @@ public final class PatchesCuriosityGoal extends Goal {
     private void maintainAxolotlDistance() { double distance = patches.distanceTo(axolotlTarget); if (distance > AXOLOTL_REPOSITION_DISTANCE) patches.getNavigation().moveTo(axolotlTarget, APPROACH_SPEED); else patches.getNavigation().stop(); }
     private void maintainWanderingTraderDistance() { double distance = patches.distanceTo(wanderingTraderTarget); if (distance > AXOLOTL_REPOSITION_DISTANCE) patches.getNavigation().moveTo(wanderingTraderTarget, APPROACH_SPEED); else patches.getNavigation().stop(); }
     private void maintainSnifferDistance() { double distance = patches.distanceTo(snifferTarget); if (distance > AXOLOTL_REPOSITION_DISTANCE) patches.getNavigation().moveTo(snifferTarget, APPROACH_SPEED); else patches.getNavigation().stop(); }
+    private void maintainPinkSheepDistance() { double distance = patches.distanceTo(pinkSheepTarget); if (distance > AXOLOTL_REPOSITION_DISTANCE) patches.getNavigation().moveTo(pinkSheepTarget, APPROACH_SPEED); else patches.getNavigation().stop(); }
     private void maintainLootVehicleDistance() { double distance = patches.distanceTo(lootVehicleTarget); if (distance > AXOLOTL_REPOSITION_DISTANCE) patches.getNavigation().moveTo(lootVehicleTarget, APPROACH_SPEED); else patches.getNavigation().stop(); }
+
+    private Sheep findNearbyPinkSheep() {
+        AABB search = patches.getBoundingBox().inflate(SCAN_RADIUS, 3.0, SCAN_RADIUS);
+        return patches.level().getEntitiesOfClass(Sheep.class, search, sheep -> sheep.isAlive()
+                && sheep.getColor() == DyeColor.PINK
+                && !patches.hasRememberedPinkSheepCuriosity(sheep.getUUID())
+                && patches.hasLineOfSight(sheep))
+                .stream().min(Comparator.comparingDouble(patches::distanceToSqr)).orElse(null);
+    }
+
+    private Allay findNearbyTrappedAllay() {
+        AABB search = patches.getBoundingBox().inflate(SCAN_RADIUS, 3.0, SCAN_RADIUS);
+        return patches.level().getEntitiesOfClass(Allay.class, search, allay -> allay.isAlive()
+                && !allay.hasItemInHand()
+                && !patches.hasRememberedTrappedAllayCuriosity(allay.getUUID())
+                && isAllayConfined(allay)
+                && canPerceiveAllayThroughCage(allay)
+                && findAllayObservationPoint(allay) != null)
+                .stream().min(Comparator.comparingDouble(patches::distanceToSqr)).orElse(null);
+    }
+
+    private boolean isAllayConfined(Allay allay) {
+        if (!hasNearbyAllayCageMaterial(allay)) return false;
+        Vec3 center = allay.position().add(0.0, allay.getBbHeight() * 0.5, 0.0);
+        int blockedSides = 0;
+        Vec3[] directions = { new Vec3(3.5, 0.0, 0.0), new Vec3(-3.5, 0.0, 0.0), new Vec3(0.0, 0.0, 3.5), new Vec3(0.0, 0.0, -3.5) };
+        for (Vec3 direction : directions) {
+            BlockHitResult hit = patches.level().clip(new ClipContext(center, center.add(direction), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, allay));
+            if (hit.getType() != HitResult.Type.MISS) blockedSides++;
+        }
+        return blockedSides >= 3;
+    }
+
+    private boolean hasNearbyAllayCageMaterial(Allay allay) {
+        BlockPos center = allay.blockPosition();
+        for (BlockPos pos : BlockPos.betweenClosed(center.offset(-4, -2, -4), center.offset(4, 3, 4))) {
+            if (isAllayCageMaterial(pos)) return true;
+        }
+        return false;
+    }
+
+    private boolean isAllayCageMaterial(BlockPos pos) {
+        var state = patches.level().getBlockState(pos);
+        return state.is(BlockTags.FENCES) || state.is(Blocks.IRON_BARS);
+    }
+
+    private boolean canPerceiveAllayThroughCage(Allay allay) {
+        Vec3 center = allay.position().add(0.0, allay.getBbHeight() * 0.5, 0.0);
+        double halfWidth = Math.max(0.15, allay.getBbWidth() * 0.3);
+        Vec3[] samples = {
+                center,
+                center.add(0.0, allay.getBbHeight() * 0.25, 0.0),
+                center.add(halfWidth, 0.0, 0.0),
+                center.add(-halfWidth, 0.0, 0.0),
+                center.add(0.0, 0.0, halfWidth),
+                center.add(0.0, 0.0, -halfWidth)
+        };
+        for (Vec3 sample : samples) if (rayCanPassAllayCage(patches.getEyePosition(), sample, allay)) return true;
+        return false;
+    }
+
+    private boolean rayCanPassAllayCage(Vec3 start, Vec3 target, Entity context) {
+        Vec3 direction = target.subtract(start);
+        if (direction.lengthSqr() < 1.0e-6) return true;
+        direction = direction.normalize();
+        Vec3 cursor = start;
+        for (int pass = 0; pass < 12; pass++) {
+            BlockHitResult hit = patches.level().clip(new ClipContext(cursor, target, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, context));
+            if (hit.getType() == HitResult.Type.MISS) return true;
+            if (!isAllayCageMaterial(hit.getBlockPos())) return false;
+            cursor = hit.getLocation().add(direction.scale(0.12));
+            if (cursor.distanceToSqr(target) < 0.04) return true;
+        }
+        return false;
+    }
+
+    private BlockPos findAllayObservationPoint(Allay allay) {
+        BlockPos center = allay.blockPosition();
+        BlockPos best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (BlockPos barrier : BlockPos.betweenClosed(center.offset(-4, -2, -4), center.offset(4, 3, 4))) {
+            if (!isAllayCageMaterial(barrier)) continue;
+            BlockPos[] candidates = { barrier.north(), barrier.south(), barrier.east(), barrier.west() };
+            for (BlockPos candidate : candidates) {
+                if (!patches.getNavigation().isStableDestination(candidate)) continue;
+                var path = patches.getNavigation().createPath(candidate, 0);
+                if (path == null || !path.canReach()) continue;
+                Vec3 eye = Vec3.atBottomCenterOf(candidate).add(0.0, patches.getEyeHeight(), 0.0);
+                Vec3 target = allay.position().add(0.0, allay.getBbHeight() * 0.5, 0.0);
+                if (!rayCanPassAllayCage(eye, target, allay)) continue;
+                double distance = candidate.distSqr(patches.blockPosition());
+                if (distance < bestDistance) { best = candidate.immutable(); bestDistance = distance; }
+            }
+        }
+        return best;
+    }
 
     private Axolotl findNearbyBlueAxolotl() {
         AABB search = patches.getBoundingBox().inflate(SCAN_RADIUS, 3.0, SCAN_RADIUS);
@@ -749,6 +976,8 @@ public final class PatchesCuriosityGoal extends Goal {
     private void lookAtAxolotl() { patches.getLookControl().setLookAt(axolotlTarget, 20.0F, patches.getMaxHeadXRot()); }
     private void lookAtWanderingTrader() { patches.getLookControl().setLookAt(wanderingTraderTarget, 20.0F, patches.getMaxHeadXRot()); }
     private void lookAtSniffer() { patches.getLookControl().setLookAt(snifferTarget, 20.0F, patches.getMaxHeadXRot()); }
+    private void lookAtPinkSheep() { patches.getLookControl().setLookAt(pinkSheepTarget, 20.0F, patches.getMaxHeadXRot()); }
+    private void lookAtTrappedAllay() { patches.getLookControl().setLookAt(trappedAllayTarget, 24.0F, patches.getMaxHeadXRot()); }
     private void lookAtLootVehicle() { patches.getLookControl().setLookAt(lootVehicleTarget, 20.0F, patches.getMaxHeadXRot()); }
     private String targetName() {
         return switch (targetKind) {
@@ -759,6 +988,8 @@ public final class PatchesCuriosityGoal extends Goal {
             case ARCHAEOLOGY -> patches.level().getBlockState(blockTarget).is(Blocks.SUSPICIOUS_SAND) ? "Suspicious Sand" : "Suspicious Gravel";
             case LOOT_CONTAINER -> "an unopened " + lootContainerName();
             case LOOT_VEHICLE -> "an unopened " + lootVehicleName();
+            case PINK_SHEEP -> "a Pink Sheep";
+            case TRAPPED_ALLAY -> "a trapped Allay";
             case VALUABLE_BLOCK -> {
                 var state = patches.level().getBlockState(blockTarget);
                 if (state.is(Blocks.EMERALD_ORE) || state.is(Blocks.DEEPSLATE_EMERALD_ORE)) yield "Emerald Ore";
@@ -796,6 +1027,6 @@ public final class PatchesCuriosityGoal extends Goal {
     }
     private void report(String state, String detail) { if (!DEBUG_CURIOSITY) return; Player player = relevantPlayer(); if (player != null) player.sendSystemMessage(Component.literal("[Patches] CURIOSITY: " + state + " — " + detail)); }
 
-    private enum TargetKind { FLOWER, LOW_BLOCK, AXOLOTL, BLUE_AXOLOTL, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, LOOT_CONTAINER, LOOT_VEHICLE, VALUABLE_BLOCK }
+    private enum TargetKind { FLOWER, LOW_BLOCK, AXOLOTL, BLUE_AXOLOTL, PINK_SHEEP, TRAPPED_ALLAY, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, LOOT_CONTAINER, LOOT_VEHICLE, VALUABLE_BLOCK }
     private enum Phase { IDLE, NOTICE, APPROACH, INSPECT, SHARE_WAIT, PLAYER_INVITE, BECKON, SHARE_REACTION }
 }
