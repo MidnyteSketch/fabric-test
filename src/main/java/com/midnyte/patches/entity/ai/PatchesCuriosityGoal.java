@@ -102,6 +102,7 @@ public final class PatchesCuriosityGoal extends Goal {
         switch (targetKind) {
             case FLOWER, LOW_BLOCK -> tickLowBlock();
             case AXOLOTL -> tickAxolotl();
+            case BLUE_AXOLOTL -> tickBlueAxolotl();
             case SNIFFER -> tickSniffer();
             case ARCHAEOLOGY -> tickArchaeology();
             case WANDERING_TRADER -> tickWanderingTrader();
@@ -165,6 +166,63 @@ public final class PatchesCuriosityGoal extends Goal {
                 if (--phaseTicks <= 0) { report("COMPLETE", "Finished sharing the Axolotl; returning to normal behavior."); finish(true); }
             }
             default -> { }
+        }
+    }
+
+    private void tickBlueAxolotl() {
+        double distance = patches.distanceTo(axolotlTarget);
+        if (distance > AXOLOTL_ABANDON_DISTANCE) { report("INTERRUPTED", "Blue Axolotl moved too far away to keep following."); finish(false); return; }
+        switch (phase) {
+            case NOTICE -> { patches.setActivityExpression(PatchesExpression.SURPRISED); lookAtAxolotl(); if (--phaseTicks <= 0) enterApproach(); }
+            case APPROACH -> {
+                patches.setActivityExpression(PatchesExpression.SURPRISED); lookAtAxolotl();
+                if (distance <= AXOLOTL_COMFORT_DISTANCE) {
+                    patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = VALUABLE_INSPECT_TICKS;
+                    report("INSPECT", "Reached rare Blue Axolotl; excitedly watching it.");
+                } else if (patches.getNavigation().isDone() || patches.tickCount % 10 == 0) patches.getNavigation().moveTo(axolotlTarget, APPROACH_SPEED);
+            }
+            case INSPECT -> {
+                maintainAxolotlDistance(); patches.setActivityExpression(PatchesExpression.SURPRISED); lookAtAxolotl();
+                if (--phaseTicks <= 0) { phase = Phase.BECKON; phaseTicks = VALUABLE_BECKON_TICKS; beckonCycleTicks = 0; beckonHops = 0; report("BECKON", "The Blue Axolotl is special; actively calling the player over."); }
+            }
+            case BECKON -> tickBlueAxolotlBeckon();
+            case SHARE_REACTION -> {
+                patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.LAUGH_TONGUE);
+                float celebrationYaw = patches.getYRot() + 24.0F;
+                patches.setYRot(celebrationYaw);
+                patches.yBodyRot = celebrationYaw;
+                patches.yHeadRot = celebrationYaw;
+                patches.yBodyRotO = celebrationYaw;
+                patches.yHeadRotO = celebrationYaw;
+                if (--phaseTicks <= 0) { report("COMPLETE", "Finished celebrating the rare Blue Axolotl."); finish(true); }
+            }
+            default -> { }
+        }
+    }
+
+    private void tickBlueAxolotlBeckon() {
+        patches.getNavigation().stop();
+        patches.setActivityExpression(PatchesExpression.SURPRISED);
+        Player player = relevantPlayer();
+        if (player != null && patches.distanceTo(player) <= SHARE_PLAYER_DISTANCE) {
+            phase = Phase.SHARE_REACTION; phaseTicks = SHARE_REACTION_TICKS;
+            report("SHARE REACTION", "Player arrived; celebrating the Blue Axolotl."); return;
+        }
+        int cycle = beckonCycleTicks++ % 60;
+        if (cycle < 38 && player != null) {
+            patches.getLookControl().setLookAt(player, 30.0F, patches.getMaxHeadXRot());
+            if ((cycle == 4 || cycle == 18) && patches.onGround() && beckonHops < 2) {
+                Vec3 motion = patches.getDeltaMovement();
+                patches.setDeltaMovement(motion.x, 0.34, motion.z);
+                beckonHops++;
+            }
+        } else {
+            lookAtAxolotl();
+            if (cycle == 59) beckonHops = 0;
+        }
+        if (--phaseTicks <= 0) {
+            report("COMPLETE", "Player did not come over; remembered the rare Blue Axolotl.");
+            finish(true);
         }
     }
 
@@ -319,6 +377,8 @@ public final class PatchesCuriosityGoal extends Goal {
     @Override public void stop() { if (phase != Phase.IDLE) finish(false); }
 
     private boolean chooseBestNearbyTarget() {
+        Axolotl blueAxolotl = findNearbyBlueAxolotl();
+        if (blueAxolotl != null) { selectBlueAxolotl(blueAxolotl); return true; }
         BlockPos valuable = findNearbyValuableBlock();
         if (valuable != null) { selectValuableBlock(valuable); return true; }
         Axolotl axolotl = findNearbyAxolotl();
@@ -338,6 +398,8 @@ public final class PatchesCuriosityGoal extends Goal {
 
     private boolean tryUpgradeTarget() {
         if (targetPriority != PatchesCuriosityPriority.HIGH) {
+            Axolotl blueAxolotl = findNearbyBlueAxolotl();
+            if (blueAxolotl != null) { report("PRIORITY", "A rare Blue Axolotl outranks the current curiosity; switching targets."); selectBlueAxolotl(blueAxolotl); beginNotice(); return true; }
             BlockPos valuable = findNearbyValuableBlock();
             if (valuable != null) { report("PRIORITY", "A valuable discovery outranks the current curiosity; switching targets."); selectValuableBlock(valuable); beginNotice(); return true; }
         }
@@ -361,6 +423,7 @@ public final class PatchesCuriosityGoal extends Goal {
         blockMemoryTarget = canonicalLowBlockPos(blockTarget);
         axolotlTarget = null; wanderingTraderTarget = null;
     }
+    private void selectBlueAxolotl(Axolotl axolotl) { targetKind = TargetKind.BLUE_AXOLOTL; targetPriority = PatchesCuriosityPriority.HIGH; axolotlTarget = axolotl; wanderingTraderTarget = null; snifferTarget = null; blockTarget = null; blockMemoryTarget = null; }
     private void selectAxolotl(Axolotl axolotl) { targetKind = TargetKind.AXOLOTL; targetPriority = PatchesCuriosityPriority.MEDIUM; axolotlTarget = axolotl; wanderingTraderTarget = null; blockTarget = null; blockMemoryTarget = null; }
     private void selectWanderingTrader(WanderingTrader trader) { targetKind = TargetKind.WANDERING_TRADER; targetPriority = PatchesCuriosityPriority.MEDIUM; wanderingTraderTarget = trader; axolotlTarget = null; snifferTarget = null; blockTarget = null; blockMemoryTarget = null; }
     private void selectSniffer(Sniffer sniffer) { targetKind = TargetKind.SNIFFER; targetPriority = PatchesCuriosityPriority.MEDIUM; snifferTarget = sniffer; axolotlTarget = null; wanderingTraderTarget = null; blockTarget = null; blockMemoryTarget = null; }
@@ -374,7 +437,7 @@ public final class PatchesCuriosityGoal extends Goal {
         if (remember) {
             if (targetKind == TargetKind.FLOWER && blockTarget != null) patches.rememberFlowerCuriosity(blockTarget);
             if (targetKind == TargetKind.LOW_BLOCK && blockMemoryTarget != null) patches.rememberLowBlockCuriosity(blockMemoryTarget);
-            if (targetKind == TargetKind.AXOLOTL && axolotlTarget != null) patches.rememberAxolotlCuriosity(axolotlTarget.getUUID());
+            if ((targetKind == TargetKind.AXOLOTL || targetKind == TargetKind.BLUE_AXOLOTL) && axolotlTarget != null) patches.rememberAxolotlCuriosity(axolotlTarget.getUUID());
             if (targetKind == TargetKind.WANDERING_TRADER && wanderingTraderTarget != null) patches.rememberWanderingTraderCuriosity(wanderingTraderTarget.getUUID());
             if (targetKind == TargetKind.SNIFFER && snifferTarget != null) patches.rememberSnifferCuriosity(snifferTarget.getUUID());
             if (targetKind == TargetKind.ARCHAEOLOGY && blockTarget != null) patches.rememberArchaeologyCuriosity(blockTarget);
@@ -391,6 +454,7 @@ public final class PatchesCuriosityGoal extends Goal {
         if (targetKind == TargetKind.WANDERING_TRADER) return wanderingTraderTarget != null && wanderingTraderTarget.isAlive() && !wanderingTraderTarget.isRemoved() && wanderingTraderTarget.level() == patches.level();
         if (targetKind == TargetKind.SNIFFER) return snifferTarget != null && snifferTarget.isAlive() && !snifferTarget.isRemoved() && snifferTarget.level() == patches.level();
         if (targetKind == TargetKind.ARCHAEOLOGY) return blockTarget != null && isUnresolvedArchaeology(blockTarget);
+        if (targetKind == TargetKind.BLUE_AXOLOTL) return axolotlTarget != null && axolotlTarget.isAlive() && !axolotlTarget.isRemoved() && axolotlTarget.level() == patches.level() && isBlueAxolotl(axolotlTarget);
         return axolotlTarget != null && axolotlTarget.isAlive() && !axolotlTarget.isRemoved() && axolotlTarget.level() == patches.level();
     }
 
@@ -407,9 +471,16 @@ public final class PatchesCuriosityGoal extends Goal {
     private void maintainWanderingTraderDistance() { double distance = patches.distanceTo(wanderingTraderTarget); if (distance > AXOLOTL_REPOSITION_DISTANCE) patches.getNavigation().moveTo(wanderingTraderTarget, APPROACH_SPEED); else patches.getNavigation().stop(); }
     private void maintainSnifferDistance() { double distance = patches.distanceTo(snifferTarget); if (distance > AXOLOTL_REPOSITION_DISTANCE) patches.getNavigation().moveTo(snifferTarget, APPROACH_SPEED); else patches.getNavigation().stop(); }
 
+    private Axolotl findNearbyBlueAxolotl() {
+        AABB search = patches.getBoundingBox().inflate(SCAN_RADIUS, 3.0, SCAN_RADIUS);
+        return patches.level().getEntitiesOfClass(Axolotl.class, search, axolotl -> axolotl.isAlive() && isBlueAxolotl(axolotl) && !patches.hasRememberedAxolotlCuriosity(axolotl.getUUID()) && patches.hasLineOfSight(axolotl)).stream().min(Comparator.comparingDouble(patches::distanceToSqr)).orElse(null);
+    }
+
+    private boolean isBlueAxolotl(Axolotl axolotl) { return axolotl.getVariant() == Axolotl.Variant.BLUE; }
+
     private Axolotl findNearbyAxolotl() {
         AABB search = patches.getBoundingBox().inflate(SCAN_RADIUS, 3.0, SCAN_RADIUS);
-        return patches.level().getEntitiesOfClass(Axolotl.class, search, axolotl -> axolotl.isAlive() && !patches.hasRememberedAxolotlCuriosity(axolotl.getUUID())).stream().min(Comparator.comparingDouble(patches::distanceToSqr)).orElse(null);
+        return patches.level().getEntitiesOfClass(Axolotl.class, search, axolotl -> axolotl.isAlive() && !isBlueAxolotl(axolotl) && !patches.hasRememberedAxolotlCuriosity(axolotl.getUUID()) && patches.hasLineOfSight(axolotl)).stream().min(Comparator.comparingDouble(patches::distanceToSqr)).orElse(null);
     }
 
     private WanderingTrader findNearbyWanderingTrader() {
@@ -547,6 +618,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private String targetName() {
         return switch (targetKind) {
             case AXOLOTL -> "an Axolotl";
+            case BLUE_AXOLOTL -> "a rare Blue Axolotl";
             case WANDERING_TRADER -> "a Wandering Trader";
             case SNIFFER -> "a Sniffer";
             case ARCHAEOLOGY -> patches.level().getBlockState(blockTarget).is(Blocks.SUSPICIOUS_SAND) ? "Suspicious Sand" : "Suspicious Gravel";
@@ -571,6 +643,6 @@ public final class PatchesCuriosityGoal extends Goal {
     }
     private void report(String state, String detail) { if (!DEBUG_CURIOSITY) return; Player player = relevantPlayer(); if (player != null) player.sendSystemMessage(Component.literal("[Patches] CURIOSITY: " + state + " — " + detail)); }
 
-    private enum TargetKind { FLOWER, LOW_BLOCK, AXOLOTL, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, VALUABLE_BLOCK }
+    private enum TargetKind { FLOWER, LOW_BLOCK, AXOLOTL, BLUE_AXOLOTL, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, VALUABLE_BLOCK }
     private enum Phase { IDLE, NOTICE, APPROACH, INSPECT, SHARE_WAIT, PLAYER_INVITE, BECKON, SHARE_REACTION }
 }
