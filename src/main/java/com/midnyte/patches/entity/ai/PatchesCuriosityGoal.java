@@ -61,6 +61,8 @@ public final class PatchesCuriosityGoal extends Goal {
     private static final double SHARE_PLAYER_DISTANCE = 4.0;
     private static final double HURRY_INTERRUPT_DISTANCE = 16.0;
     private static final double APPROACH_SPEED = 0.85;
+    private static final int CURIOSITY_APPROACH_TIMEOUT_TICKS = 20 * 20;
+    private static final double VALUABLE_OBSERVATION_RANGE = 3.0;
 
     private static final double DISCOVERY_RADIUS = 18.0;
     private final PatchesFamiliarity familiarity = new PatchesFamiliarity();
@@ -70,7 +72,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private boolean discovery;
     private boolean leadWaiting;
     private Player discoveryPlayer;
-    private long activityStarted, leadWaitStarted, nextProgressCheck;
+    private long activityStarted, leadWaitStarted, nextProgressCheck, approachStarted;
     private int failedProgress;
     private double lastObservationDistance = Double.POSITIVE_INFINITY;
     private Vec3 lastPlayerPosition;
@@ -132,6 +134,11 @@ public final class PatchesCuriosityGoal extends Goal {
             finish(false); return;
         }
         if (discovery && !validateDiscovery()) return;
+        if (phase == Phase.APPROACH && approachStarted > 0
+                && patches.level().getGameTime() - approachStarted > CURIOSITY_APPROACH_TIMEOUT_TICKS) {
+            report("INTERRUPTED", "Could not reach " + targetName() + " within the approach time budget; giving up.");
+            finish(false); return;
+        }
         if (!targetStillValid()) {
             report("INTERRUPTED", targetName() + " is no longer available.");
             finish(false); return;
@@ -533,10 +540,21 @@ public final class PatchesCuriosityGoal extends Goal {
             case NOTICE -> { patches.setActivityExpression(PatchesExpression.SURPRISED); lookAt(center); if (--phaseTicks <= 0) enterApproach(); }
             case APPROACH -> {
                 patches.setActivityExpression(PatchesExpression.SURPRISED); lookAt(center);
-                if (Math.sqrt(patches.distanceToSqr(center)) <= VALUABLE_APPROACH_DISTANCE) {
+                if (observationPoint == null || !canSeeBlockFrom(Vec3.atBottomCenterOf(observationPoint).add(0, patches.getEyeHeight(), 0), blockTarget)) {
+                    observationPoint = findObservationPoint(blockTarget, VALUABLE_OBSERVATION_RANGE, false);
+                    failedProgress = 0; lastObservationDistance = Double.POSITIVE_INFINITY; nextProgressCheck = 0;
+                    if (observationPoint == null) {
+                        report("INTERRUPTED", "Visible " + targetName() + " has no reachable observation point; giving up rather than climbing toward the ore block.");
+                        finish(false); return;
+                    }
+                }
+                Vec3 feet = Vec3.atBottomCenterOf(observationPoint);
+                if (patches.distanceToSqr(feet) <= 0.81) {
                     patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = VALUABLE_INSPECT_TICKS;
-                    report("INSPECT", "Reached " + targetName() + "; excitedly checking the find.");
-                } else if (patches.getNavigation().isDone() || patches.tickCount % 10 == 0) patches.getNavigation().moveTo(center.x, center.y, center.z, APPROACH_SPEED);
+                    report("INSPECT", "Reached a visible observation point for " + targetName() + "; excitedly checking the find.");
+                } else {
+                    moveToObservation(patches.level().getGameTime());
+                }
             }
             case INSPECT -> {
                 patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.SURPRISED); lookAt(center);
@@ -672,10 +690,20 @@ public final class PatchesCuriosityGoal extends Goal {
     private void selectArchaeology(BlockPos pos) { targetKind = TargetKind.ARCHAEOLOGY; targetPriority = PatchesCuriosityPriority.MEDIUM; blockTarget = pos.immutable(); blockMemoryTarget = pos.immutable(); axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; }
     private void selectLootContainer(BlockPos pos) { targetKind = TargetKind.LOOT_CONTAINER; targetPriority = PatchesCuriosityPriority.MEDIUM; blockTarget = pos.immutable(); blockMemoryTarget = canonicalLootContainerPos(pos); axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; lootVehicleTarget = null; }
     private void selectLootVehicle(Entity vehicle) { targetKind = TargetKind.LOOT_VEHICLE; targetPriority = PatchesCuriosityPriority.MEDIUM; lootVehicleTarget = vehicle; blockTarget = null; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; }
-    private void selectValuableBlock(BlockPos valuable) { targetKind = TargetKind.VALUABLE_BLOCK; targetPriority = PatchesCuriosityPriority.HIGH; blockTarget = valuable.immutable(); blockMemoryTarget = valuable.immutable(); axolotlTarget = null; wanderingTraderTarget = null; }
+    private void selectValuableBlock(BlockPos valuable) {
+        targetKind = TargetKind.VALUABLE_BLOCK; targetPriority = PatchesCuriosityPriority.HIGH;
+        blockTarget = valuable.immutable(); blockMemoryTarget = valuable.immutable();
+        observationPoint = findObservationPoint(valuable, VALUABLE_OBSERVATION_RANGE, false);
+        failedProgress = 0; lastObservationDistance = Double.POSITIVE_INFINITY; nextProgressCheck = 0;
+        axolotlTarget = null; wanderingTraderTarget = null;
+    }
 
     private void beginNotice() { phase = Phase.NOTICE; phaseTicks = 8; patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.SURPRISED); report("NOTICE", "Spotted " + targetName() + " (" + targetPriority + ")."); }
-    private void enterApproach() { phase = Phase.APPROACH; report("APPROACH", "Going over to investigate " + targetName() + "."); }
+    private void enterApproach() {
+        phase = Phase.APPROACH;
+        approachStarted = patches.level().getGameTime();
+        report("APPROACH", "Going over to investigate " + targetName() + ".");
+    }
 
     private void finish(boolean remember) {
         if (remember) {
@@ -696,7 +724,7 @@ public final class PatchesCuriosityGoal extends Goal {
         }
         clearExploration();
         patches.getNavigation().stop(); patches.clearActivityExpression(); targetKind = null; targetPriority = null; blockTarget = null; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; pinkSheepTarget = null; trappedAllayTarget = null; lootVehicleTarget = null;
-        phase = Phase.IDLE; phaseTicks = 0; cooldownTicks = GENERAL_COOLDOWN_TICKS; beckonCycleTicks = 0; beckonHops = 0;
+        phase = Phase.IDLE; phaseTicks = 0; cooldownTicks = GENERAL_COOLDOWN_TICKS; beckonCycleTicks = 0; beckonHops = 0; approachStarted = 0;
     }
 
     private boolean targetStillValid() {
@@ -1372,7 +1400,11 @@ public final class PatchesCuriosityGoal extends Goal {
         if (!started || lastObservationDistance - distance < 0.1) failedProgress++;
         else failedProgress = 0;
         lastObservationDistance = distance;
-        if (failedProgress >= 4) { report(discovery ? "DISCOVERY STOP" : "GEODE", "Four failed/no-progress path checks; giving up cleanly."); finish(false); }
+        if (failedProgress >= 4) {
+            String state = discovery ? "DISCOVERY STOP" : targetKind == TargetKind.GEODE ? "GEODE" : "INTERRUPTED";
+            report(state, "Four failed/no-progress path checks while approaching " + targetName() + "; giving up cleanly.");
+            finish(false);
+        }
     }
 
     private enum TargetKind { GEODE, FLOWER, LOW_BLOCK, AXOLOTL, BLUE_AXOLOTL, PINK_SHEEP, TRAPPED_ALLAY, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, LOOT_CONTAINER, LOOT_VEHICLE, VALUABLE_BLOCK }
