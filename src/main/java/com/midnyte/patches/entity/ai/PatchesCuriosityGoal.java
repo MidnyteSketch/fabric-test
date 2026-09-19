@@ -7,11 +7,13 @@ import com.midnyte.patches.mixin.BrushableBlockEntityAccessor;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.tags.BlockTags;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.animal.axolotl.Axolotl;
 import net.minecraft.world.entity.animal.sniffer.Sniffer;
 import net.minecraft.world.entity.npc.wanderingtrader.WanderingTrader;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.vehicle.ContainerEntity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
@@ -57,6 +59,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private Axolotl axolotlTarget;
     private WanderingTrader wanderingTraderTarget;
     private Sniffer snifferTarget;
+    private Entity lootVehicleTarget;
     private Phase phase = Phase.IDLE;
     private int phaseTicks;
     private int cooldownTicks;
@@ -109,6 +112,7 @@ public final class PatchesCuriosityGoal extends Goal {
             case SNIFFER -> tickSniffer();
             case ARCHAEOLOGY -> tickArchaeology();
             case LOOT_CONTAINER -> tickLootContainer();
+            case LOOT_VEHICLE -> tickLootVehicle();
             case WANDERING_TRADER -> tickWanderingTrader();
             case VALUABLE_BLOCK -> tickValuableBlock();
         }
@@ -319,6 +323,37 @@ public final class PatchesCuriosityGoal extends Goal {
         }
     }
 
+    private void tickLootVehicle() {
+        double distance = patches.distanceTo(lootVehicleTarget);
+        if (distance > AXOLOTL_ABANDON_DISTANCE) { report("INTERRUPTED", "Loot vehicle moved too far away to keep following."); finish(false); return; }
+        switch (phase) {
+            case NOTICE -> { patches.setActivityExpression(PatchesExpression.SURPRISED); lookAtLootVehicle(); if (--phaseTicks <= 0) enterApproach(); }
+            case APPROACH -> {
+                patches.setActivityExpression(PatchesExpression.SURPRISED); lookAtLootVehicle();
+                if (distance <= AXOLOTL_COMFORT_DISTANCE) {
+                    patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = AXOLOTL_INSPECT_TICKS;
+                    report("INSPECT", "Reached " + targetName() + "; checking the unopened find.");
+                } else if (patches.getNavigation().isDone() || patches.tickCount % 10 == 0) patches.getNavigation().moveTo(lootVehicleTarget, APPROACH_SPEED);
+            }
+            case INSPECT -> {
+                maintainLootVehicleDistance(); patches.setActivityExpression(PatchesExpression.DEFAULT); lookAtLootVehicle();
+                if (--phaseTicks <= 0) { phase = Phase.PLAYER_INVITE; phaseTicks = AXOLOTL_INVITE_TICKS; report("PLAYER INVITE", "Calling the player's attention to " + targetName() + "."); }
+            }
+            case PLAYER_INVITE -> {
+                maintainLootVehicleDistance(); patches.setActivityExpression(PatchesExpression.DEFAULT); Player player = relevantPlayer();
+                if (player != null && patches.distanceTo(player) <= SHARE_PLAYER_DISTANCE) { phase = Phase.SHARE_REACTION; phaseTicks = SHARE_REACTION_TICKS; report("SHARE REACTION", "Player came over to check " + targetName() + "."); return; }
+                if (player != null && (phaseTicks / 20) % 2 == 0) patches.getLookControl().setLookAt(player, 20.0F, patches.getMaxHeadXRot()); else lookAtLootVehicle();
+                if (--phaseTicks <= 0) { report("COMPLETE", "Player did not join; remembered " + targetName() + "."); finish(true); }
+            }
+            case SHARE_REACTION -> {
+                maintainLootVehicleDistance(); patches.setActivityExpression(PatchesExpression.CONTENT); Player player = relevantPlayer();
+                if (player != null && (phaseTicks / 20) % 2 == 0) patches.getLookControl().setLookAt(player, 20.0F, patches.getMaxHeadXRot()); else lookAtLootVehicle();
+                if (--phaseTicks <= 0) { report("COMPLETE", "Finished sharing the unopened vehicle-container find."); finish(true); }
+            }
+            default -> { }
+        }
+    }
+
     private void tickWanderingTrader() {
         double distance = patches.distanceTo(wanderingTraderTarget);
         if (distance > AXOLOTL_ABANDON_DISTANCE) { report("INTERRUPTED", "Wandering Trader moved too far away to keep following."); finish(false); return; }
@@ -425,6 +460,8 @@ public final class PatchesCuriosityGoal extends Goal {
         if (archaeology != null) { selectArchaeology(archaeology); return true; }
         BlockPos lootContainer = findNearbyLootContainer();
         if (lootContainer != null) { selectLootContainer(lootContainer); return true; }
+        Entity lootVehicle = findNearbyLootVehicle();
+        if (lootVehicle != null) { selectLootVehicle(lootVehicle); return true; }
         BlockPos flower = findNearbyFlower();
         if (flower != null) { selectFlower(flower); return true; }
         BlockPos lowBlock = findNearbyLowBlock();
@@ -450,6 +487,8 @@ public final class PatchesCuriosityGoal extends Goal {
             if (archaeology != null) { report("PRIORITY", "An archaeology find is more interesting than the current low curiosity; switching targets."); selectArchaeology(archaeology); beginNotice(); return true; }
             BlockPos lootContainer = findNearbyLootContainer();
             if (lootContainer != null) { report("PRIORITY", "An unopened generated container is more interesting than the current low curiosity; switching targets."); selectLootContainer(lootContainer); beginNotice(); return true; }
+            Entity lootVehicle = findNearbyLootVehicle();
+            if (lootVehicle != null) { report("PRIORITY", "An unopened loot vehicle is more interesting than the current low curiosity; switching targets."); selectLootVehicle(lootVehicle); beginNotice(); return true; }
         }
         return false;
     }
@@ -466,7 +505,8 @@ public final class PatchesCuriosityGoal extends Goal {
     private void selectWanderingTrader(WanderingTrader trader) { targetKind = TargetKind.WANDERING_TRADER; targetPriority = PatchesCuriosityPriority.MEDIUM; wanderingTraderTarget = trader; axolotlTarget = null; snifferTarget = null; blockTarget = null; blockMemoryTarget = null; }
     private void selectSniffer(Sniffer sniffer) { targetKind = TargetKind.SNIFFER; targetPriority = PatchesCuriosityPriority.MEDIUM; snifferTarget = sniffer; axolotlTarget = null; wanderingTraderTarget = null; blockTarget = null; blockMemoryTarget = null; }
     private void selectArchaeology(BlockPos pos) { targetKind = TargetKind.ARCHAEOLOGY; targetPriority = PatchesCuriosityPriority.MEDIUM; blockTarget = pos.immutable(); blockMemoryTarget = pos.immutable(); axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; }
-    private void selectLootContainer(BlockPos pos) { targetKind = TargetKind.LOOT_CONTAINER; targetPriority = PatchesCuriosityPriority.MEDIUM; blockTarget = pos.immutable(); blockMemoryTarget = canonicalLootContainerPos(pos); axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; }
+    private void selectLootContainer(BlockPos pos) { targetKind = TargetKind.LOOT_CONTAINER; targetPriority = PatchesCuriosityPriority.MEDIUM; blockTarget = pos.immutable(); blockMemoryTarget = canonicalLootContainerPos(pos); axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; lootVehicleTarget = null; }
+    private void selectLootVehicle(Entity vehicle) { targetKind = TargetKind.LOOT_VEHICLE; targetPriority = PatchesCuriosityPriority.MEDIUM; lootVehicleTarget = vehicle; blockTarget = null; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; }
     private void selectValuableBlock(BlockPos valuable) { targetKind = TargetKind.VALUABLE_BLOCK; targetPriority = PatchesCuriosityPriority.HIGH; blockTarget = valuable.immutable(); blockMemoryTarget = valuable.immutable(); axolotlTarget = null; wanderingTraderTarget = null; }
 
     private void beginNotice() { phase = Phase.NOTICE; phaseTicks = 8; patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.SURPRISED); report("NOTICE", "Spotted " + targetName() + " (" + targetPriority + ")."); }
@@ -481,9 +521,10 @@ public final class PatchesCuriosityGoal extends Goal {
             if (targetKind == TargetKind.SNIFFER && snifferTarget != null) patches.rememberSnifferCuriosity(snifferTarget.getUUID());
             if (targetKind == TargetKind.ARCHAEOLOGY && blockTarget != null) patches.rememberArchaeologyCuriosity(blockTarget);
             if (targetKind == TargetKind.LOOT_CONTAINER && blockMemoryTarget != null) patches.rememberLootContainerCuriosity(blockMemoryTarget);
+            if (targetKind == TargetKind.LOOT_VEHICLE && lootVehicleTarget != null) patches.rememberLootVehicleCuriosity(lootVehicleTarget.getUUID());
             if (targetKind == TargetKind.VALUABLE_BLOCK && blockTarget != null) patches.rememberValuableCuriosity(valuableKind(blockTarget), blockTarget);
         }
-        patches.getNavigation().stop(); patches.clearActivityExpression(); targetKind = null; targetPriority = null; blockTarget = null; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null;
+        patches.getNavigation().stop(); patches.clearActivityExpression(); targetKind = null; targetPriority = null; blockTarget = null; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; lootVehicleTarget = null;
         phase = Phase.IDLE; phaseTicks = 0; cooldownTicks = GENERAL_COOLDOWN_TICKS; beckonCycleTicks = 0; beckonHops = 0;
     }
 
@@ -495,6 +536,7 @@ public final class PatchesCuriosityGoal extends Goal {
         if (targetKind == TargetKind.SNIFFER) return snifferTarget != null && snifferTarget.isAlive() && !snifferTarget.isRemoved() && snifferTarget.level() == patches.level();
         if (targetKind == TargetKind.ARCHAEOLOGY) return blockTarget != null && isUnresolvedArchaeology(blockTarget);
         if (targetKind == TargetKind.LOOT_CONTAINER) return blockTarget != null && isUnresolvedLootContainer(blockTarget);
+        if (targetKind == TargetKind.LOOT_VEHICLE) return lootVehicleTarget != null && lootVehicleTarget.isAlive() && !lootVehicleTarget.isRemoved() && lootVehicleTarget.level() == patches.level() && hasUnresolvedVehicleLoot(lootVehicleTarget);
         if (targetKind == TargetKind.BLUE_AXOLOTL) return axolotlTarget != null && axolotlTarget.isAlive() && !axolotlTarget.isRemoved() && axolotlTarget.level() == patches.level() && isBlueAxolotl(axolotlTarget);
         return axolotlTarget != null && axolotlTarget.isAlive() && !axolotlTarget.isRemoved() && axolotlTarget.level() == patches.level();
     }
@@ -511,6 +553,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private void maintainAxolotlDistance() { double distance = patches.distanceTo(axolotlTarget); if (distance > AXOLOTL_REPOSITION_DISTANCE) patches.getNavigation().moveTo(axolotlTarget, APPROACH_SPEED); else patches.getNavigation().stop(); }
     private void maintainWanderingTraderDistance() { double distance = patches.distanceTo(wanderingTraderTarget); if (distance > AXOLOTL_REPOSITION_DISTANCE) patches.getNavigation().moveTo(wanderingTraderTarget, APPROACH_SPEED); else patches.getNavigation().stop(); }
     private void maintainSnifferDistance() { double distance = patches.distanceTo(snifferTarget); if (distance > AXOLOTL_REPOSITION_DISTANCE) patches.getNavigation().moveTo(snifferTarget, APPROACH_SPEED); else patches.getNavigation().stop(); }
+    private void maintainLootVehicleDistance() { double distance = patches.distanceTo(lootVehicleTarget); if (distance > AXOLOTL_REPOSITION_DISTANCE) patches.getNavigation().moveTo(lootVehicleTarget, APPROACH_SPEED); else patches.getNavigation().stop(); }
 
     private Axolotl findNearbyBlueAxolotl() {
         AABB search = patches.getBoundingBox().inflate(SCAN_RADIUS, 3.0, SCAN_RADIUS);
@@ -532,6 +575,21 @@ public final class PatchesCuriosityGoal extends Goal {
     private Sniffer findNearbySniffer() {
         AABB search = patches.getBoundingBox().inflate(SCAN_RADIUS, 3.0, SCAN_RADIUS);
         return patches.level().getEntitiesOfClass(Sniffer.class, search, sniffer -> sniffer.isAlive() && !patches.hasRememberedSnifferCuriosity(sniffer.getUUID()) && patches.hasLineOfSight(sniffer)).stream().min(Comparator.comparingDouble(patches::distanceToSqr)).orElse(null);
+    }
+
+    private Entity findNearbyLootVehicle() {
+        AABB search = patches.getBoundingBox().inflate(SCAN_RADIUS, 3.0, SCAN_RADIUS);
+        return patches.level().getEntitiesOfClass(Entity.class, search, entity -> entity != patches
+                && entity.isAlive()
+                && entity instanceof ContainerEntity
+                && hasUnresolvedVehicleLoot(entity)
+                && !patches.hasRememberedLootVehicleCuriosity(entity.getUUID())
+                && patches.hasLineOfSight(entity))
+                .stream().min(Comparator.comparingDouble(patches::distanceToSqr)).orElse(null);
+    }
+
+    private boolean hasUnresolvedVehicleLoot(Entity entity) {
+        return entity instanceof ContainerEntity container && container.getContainerLootTable() != null;
     }
 
     private BlockPos findNearbyArchaeology() {
@@ -690,6 +748,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private void lookAtAxolotl() { patches.getLookControl().setLookAt(axolotlTarget, 20.0F, patches.getMaxHeadXRot()); }
     private void lookAtWanderingTrader() { patches.getLookControl().setLookAt(wanderingTraderTarget, 20.0F, patches.getMaxHeadXRot()); }
     private void lookAtSniffer() { patches.getLookControl().setLookAt(snifferTarget, 20.0F, patches.getMaxHeadXRot()); }
+    private void lookAtLootVehicle() { patches.getLookControl().setLookAt(lootVehicleTarget, 20.0F, patches.getMaxHeadXRot()); }
     private String targetName() {
         return switch (targetKind) {
             case AXOLOTL -> "an Axolotl";
@@ -698,6 +757,7 @@ public final class PatchesCuriosityGoal extends Goal {
             case SNIFFER -> "a Sniffer";
             case ARCHAEOLOGY -> patches.level().getBlockState(blockTarget).is(Blocks.SUSPICIOUS_SAND) ? "Suspicious Sand" : "Suspicious Gravel";
             case LOOT_CONTAINER -> "an unopened " + lootContainerName();
+            case LOOT_VEHICLE -> "an unopened " + lootVehicleName();
             case VALUABLE_BLOCK -> {
                 var state = patches.level().getBlockState(blockTarget);
                 if (state.is(Blocks.EMERALD_ORE) || state.is(Blocks.DEEPSLATE_EMERALD_ORE)) yield "Emerald Ore";
@@ -717,6 +777,11 @@ public final class PatchesCuriosityGoal extends Goal {
             default -> "a flower";
         };
     }
+    private String lootVehicleName() {
+        String name = lootVehicleTarget.getType().getDescription().getString();
+        return name;
+    }
+
     private String lootContainerName() {
         var state = patches.level().getBlockState(blockTarget);
         if (state.getBlock() instanceof ChestBlock) return state.getValue(ChestBlock.TYPE) == ChestType.SINGLE ? "Chest" : "Double Chest";
@@ -730,6 +795,6 @@ public final class PatchesCuriosityGoal extends Goal {
     }
     private void report(String state, String detail) { if (!DEBUG_CURIOSITY) return; Player player = relevantPlayer(); if (player != null) player.sendSystemMessage(Component.literal("[Patches] CURIOSITY: " + state + " — " + detail)); }
 
-    private enum TargetKind { FLOWER, LOW_BLOCK, AXOLOTL, BLUE_AXOLOTL, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, LOOT_CONTAINER, VALUABLE_BLOCK }
+    private enum TargetKind { FLOWER, LOW_BLOCK, AXOLOTL, BLUE_AXOLOTL, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, LOOT_CONTAINER, LOOT_VEHICLE, VALUABLE_BLOCK }
     private enum Phase { IDLE, NOTICE, APPROACH, INSPECT, SHARE_WAIT, PLAYER_INVITE, BECKON, SHARE_REACTION }
 }
