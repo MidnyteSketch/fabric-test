@@ -294,7 +294,7 @@ public final class PatchesCuriosityGoal extends Goal {
             report("SHARE REACTION", "Player arrived; celebrating the " + targetName() + " find."); return;
         }
 
-        // 60-tick loop: face player and make two short hops, pause, glance back at the diamond, repeat.
+        // 60-tick loop: face player and make two short hops, pause, glance back at the discovery, repeat.
         int cycle = beckonCycleTicks++ % 60;
         if (cycle < 38 && player != null) {
             patches.getLookControl().setLookAt(player, 30.0F, patches.getMaxHeadXRot());
@@ -336,7 +336,7 @@ public final class PatchesCuriosityGoal extends Goal {
 
     private boolean tryUpgradeTarget() {
         if (targetPriority != PatchesCuriosityPriority.HIGH) {
-            BlockPos diamond = findNearbyValuableBlock();
+            BlockPos valuable = findNearbyValuableBlock();
             if (valuable != null) { report("PRIORITY", "A valuable discovery outranks the current curiosity; switching targets."); selectValuableBlock(valuable); beginNotice(); return true; }
         }
         if (targetPriority == PatchesCuriosityPriority.LOW) {
