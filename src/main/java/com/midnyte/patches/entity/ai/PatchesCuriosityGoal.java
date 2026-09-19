@@ -61,6 +61,8 @@ public final class PatchesCuriosityGoal extends Goal {
     private int beckonCycleTicks;
     private int beckonHops;
 
+    public void resetCooldownForDebug() { cooldownTicks = 0; scanTicks = SCAN_INTERVAL_TICKS; }
+
     public PatchesCuriosityGoal(PatchesEntity patches) {
         this.patches = patches;
         this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
