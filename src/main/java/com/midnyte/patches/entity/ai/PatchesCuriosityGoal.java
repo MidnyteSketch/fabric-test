@@ -30,6 +30,13 @@ import net.minecraft.world.phys.Vec3;
 
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
+import net.minecraft.world.entity.animal.horse.TraderLlama;
+import net.minecraft.world.level.pathfinder.PathType;
+import net.minecraft.world.level.pathfinder.WalkNodeEvaluator;
 
 /** Shared ambient-curiosity controller. Individual interests select a priority and interaction style. */
 public final class PatchesCuriosityGoal extends Goal {
@@ -55,6 +62,24 @@ public final class PatchesCuriosityGoal extends Goal {
     private static final double HURRY_INTERRUPT_DISTANCE = 16.0;
     private static final double APPROACH_SPEED = 0.85;
 
+    private static final double DISCOVERY_RADIUS = 18.0;
+    private final PatchesFamiliarity familiarity = new PatchesFamiliarity();
+    private PatchesGeode.Feature geode;
+    private List<BlockPos> geodeLooks = List.of();
+    private BlockPos observationPoint;
+    private boolean discovery;
+    private boolean leadWaiting;
+    private Player discoveryPlayer;
+    private long activityStarted, leadWaitStarted, nextProgressCheck;
+    private int failedProgress;
+    private double lastObservationDistance = Double.POSITIVE_INFINITY;
+    private Vec3 lastPlayerPosition;
+    private long nextDiscoveryScan;
+    private long nextGeodeScan;
+    private TraderLlama caravanLook;
+    private long nextCaravanLook;
+    private long caravanLookUntil;
+
     private final PatchesEntity patches;
     private TargetKind targetKind;
     private PatchesCuriosityPriority targetPriority;
@@ -73,7 +98,11 @@ public final class PatchesCuriosityGoal extends Goal {
     private int beckonCycleTicks;
     private int beckonHops;
 
-    public void resetCooldownForDebug() { cooldownTicks = 0; scanTicks = SCAN_INTERVAL_TICKS; }
+    public void resetCooldownForDebug() {
+        cooldownTicks = 0; scanTicks = SCAN_INTERVAL_TICKS; nextDiscoveryScan = 0; nextGeodeScan = 0;
+        report("FAMILIARITY", familiarity.describe(patches.level().getGameTime()) + "; decays 1/minute, resets on reload; exact memories unchanged.");
+        report("DISCOVERY", discovery ? "Active lead: " + phase : discoveryReady() ? "Armed: Spyglass + Following; search radius 18." : "Inactive: requires Spyglass, Following, and player within 6 blocks.");
+    }
     public void interruptForRecall() { if (phase != Phase.IDLE) finish(false); }
 
     public PatchesCuriosityGoal(PatchesEntity patches) {
@@ -102,6 +131,7 @@ public final class PatchesCuriosityGoal extends Goal {
             report("INTERRUPTED", "Player reached Hurry range; abandoning " + targetName() + ".");
             finish(false); return;
         }
+        if (discovery && !validateDiscovery()) return;
         if (!targetStillValid()) {
             report("INTERRUPTED", targetName() + " is no longer available.");
             finish(false); return;
@@ -112,7 +142,9 @@ public final class PatchesCuriosityGoal extends Goal {
             if (patches.tickCount % SCAN_INTERVAL_TICKS == 0 && tryUpgradeTarget()) return;
         }
 
+        if (discovery && phase == Phase.APPROACH) { tickDiscoveryLead(); return; }
         switch (targetKind) {
+            case GEODE -> tickGeode();
             case FLOWER, LOW_BLOCK -> tickLowBlock();
             case AXOLOTL -> tickAxolotl();
             case BLUE_AXOLOTL -> tickBlueAxolotl();
@@ -559,56 +591,57 @@ public final class PatchesCuriosityGoal extends Goal {
 
     private boolean chooseBestNearbyTarget() {
         Allay trappedAllay = findNearbyTrappedAllay();
-        if (trappedAllay != null) { selectTrappedAllay(trappedAllay); return true; }
+        if (trappedAllay != null && allowFamiliarity(PatchesFamiliarity.Category.TRAPPED_ALLAY, PatchesCuriosityPriority.HIGH)) { selectTrappedAllay(trappedAllay); return true; }
         Axolotl blueAxolotl = findNearbyBlueAxolotl();
-        if (blueAxolotl != null) { selectBlueAxolotl(blueAxolotl); return true; }
+        if (blueAxolotl != null && allowFamiliarity(PatchesFamiliarity.Category.BLUE_AXOLOTL, PatchesCuriosityPriority.HIGH)) { selectBlueAxolotl(blueAxolotl); return true; }
         BlockPos valuable = findNearbyValuableBlock();
-        if (valuable != null) { selectValuableBlock(valuable); return true; }
+        if (valuable != null && allowFamiliarity(valuableCategory(valuable), PatchesCuriosityPriority.HIGH)) { selectValuableBlock(valuable); return true; }
+        if (chooseDiscoveryTarget()) return true;
         Axolotl axolotl = findNearbyAxolotl();
-        if (axolotl != null) { selectAxolotl(axolotl); return true; }
+        if (axolotl != null && allowFamiliarity(PatchesFamiliarity.Category.AXOLOTL, PatchesCuriosityPriority.MEDIUM)) { selectAxolotl(axolotl); return true; }
         WanderingTrader trader = findNearbyWanderingTrader();
-        if (trader != null) { selectWanderingTrader(trader); return true; }
+        if (trader != null && allowFamiliarity(PatchesFamiliarity.Category.WANDERING_TRADER, PatchesCuriosityPriority.MEDIUM)) { selectWanderingTrader(trader); return true; }
         Sniffer sniffer = findNearbySniffer();
-        if (sniffer != null) { selectSniffer(sniffer); return true; }
+        if (sniffer != null && allowFamiliarity(PatchesFamiliarity.Category.SNIFFER, PatchesCuriosityPriority.MEDIUM)) { selectSniffer(sniffer); return true; }
         Sheep pinkSheep = findNearbyPinkSheep();
-        if (pinkSheep != null) { selectPinkSheep(pinkSheep); return true; }
+        if (pinkSheep != null && allowFamiliarity(PatchesFamiliarity.Category.PINK_SHEEP, PatchesCuriosityPriority.MEDIUM)) { selectPinkSheep(pinkSheep); return true; }
         BlockPos archaeology = findNearbyArchaeology();
-        if (archaeology != null) { selectArchaeology(archaeology); return true; }
+        if (archaeology != null && allowFamiliarity(PatchesFamiliarity.Category.ARCHAEOLOGY, PatchesCuriosityPriority.MEDIUM)) { selectArchaeology(archaeology); return true; }
         BlockPos lootContainer = findNearbyLootContainer();
-        if (lootContainer != null) { selectLootContainer(lootContainer); return true; }
+        if (lootContainer != null && allowFamiliarity(PatchesFamiliarity.Category.LOOT_CONTAINER, PatchesCuriosityPriority.MEDIUM)) { selectLootContainer(lootContainer); return true; }
         Entity lootVehicle = findNearbyLootVehicle();
-        if (lootVehicle != null) { selectLootVehicle(lootVehicle); return true; }
+        if (lootVehicle != null && allowFamiliarity(PatchesFamiliarity.Category.LOOT_VEHICLE, PatchesCuriosityPriority.MEDIUM)) { selectLootVehicle(lootVehicle); return true; }
         BlockPos flower = findNearbyFlower();
-        if (flower != null) { selectFlower(flower); return true; }
+        if (flower != null && allowFamiliarity(PatchesFamiliarity.Category.FLOWER, PatchesCuriosityPriority.LOW)) { selectFlower(flower); return true; }
         BlockPos lowBlock = findNearbyLowBlock();
-        if (lowBlock != null) { selectLowBlock(lowBlock); return true; }
-        return false;
+        if (lowBlock != null && allowFamiliarity(PatchesFamiliarity.Category.LOW_BLOCK, PatchesCuriosityPriority.LOW)) { selectLowBlock(lowBlock); return true; }
+        return chooseGeode();
     }
 
     private boolean tryUpgradeTarget() {
         if (targetPriority != PatchesCuriosityPriority.HIGH) {
             Allay trappedAllay = findNearbyTrappedAllay();
-            if (trappedAllay != null) { report("PRIORITY", "A trapped Allay needs help; switching targets."); selectTrappedAllay(trappedAllay); beginNotice(); return true; }
+            if (trappedAllay != null && allowFamiliarity(PatchesFamiliarity.Category.TRAPPED_ALLAY, PatchesCuriosityPriority.HIGH)) { report("PRIORITY", "A trapped Allay needs help; switching targets."); selectTrappedAllay(trappedAllay); clearExploration(); beginNotice(); return true; }
             Axolotl blueAxolotl = findNearbyBlueAxolotl();
-            if (blueAxolotl != null) { report("PRIORITY", "A rare Blue Axolotl outranks the current curiosity; switching targets."); selectBlueAxolotl(blueAxolotl); beginNotice(); return true; }
+            if (blueAxolotl != null && allowFamiliarity(PatchesFamiliarity.Category.BLUE_AXOLOTL, PatchesCuriosityPriority.HIGH)) { report("PRIORITY", "A rare Blue Axolotl outranks the current curiosity; switching targets."); selectBlueAxolotl(blueAxolotl); clearExploration(); beginNotice(); return true; }
             BlockPos valuable = findNearbyValuableBlock();
-            if (valuable != null) { report("PRIORITY", "A valuable discovery outranks the current curiosity; switching targets."); selectValuableBlock(valuable); beginNotice(); return true; }
+            if (valuable != null && allowFamiliarity(valuableCategory(valuable), PatchesCuriosityPriority.HIGH)) { report("PRIORITY", "A valuable discovery outranks the current curiosity; switching targets."); selectValuableBlock(valuable); clearExploration(); beginNotice(); return true; }
         }
         if (targetPriority == PatchesCuriosityPriority.LOW) {
             Axolotl axolotl = findNearbyAxolotl();
-            if (axolotl != null) { report("PRIORITY", "An Axolotl is more interesting than the current low curiosity; switching targets."); selectAxolotl(axolotl); beginNotice(); return true; }
+            if (axolotl != null && allowFamiliarity(PatchesFamiliarity.Category.AXOLOTL, PatchesCuriosityPriority.MEDIUM)) { report("PRIORITY", "An Axolotl is more interesting than the current low curiosity; switching targets."); selectAxolotl(axolotl); clearExploration(); beginNotice(); return true; }
             WanderingTrader trader = findNearbyWanderingTrader();
-            if (trader != null) { report("PRIORITY", "A Wandering Trader is more interesting than the current low curiosity; switching targets."); selectWanderingTrader(trader); beginNotice(); return true; }
+            if (trader != null && allowFamiliarity(PatchesFamiliarity.Category.WANDERING_TRADER, PatchesCuriosityPriority.MEDIUM)) { report("PRIORITY", "A Wandering Trader is more interesting than the current low curiosity; switching targets."); selectWanderingTrader(trader); clearExploration(); beginNotice(); return true; }
             Sniffer sniffer = findNearbySniffer();
-            if (sniffer != null) { report("PRIORITY", "A Sniffer is more interesting than the current low curiosity; switching targets."); selectSniffer(sniffer); beginNotice(); return true; }
+            if (sniffer != null && allowFamiliarity(PatchesFamiliarity.Category.SNIFFER, PatchesCuriosityPriority.MEDIUM)) { report("PRIORITY", "A Sniffer is more interesting than the current low curiosity; switching targets."); selectSniffer(sniffer); clearExploration(); beginNotice(); return true; }
             Sheep pinkSheep = findNearbyPinkSheep();
-            if (pinkSheep != null) { report("PRIORITY", "A Pink Sheep is more interesting than the current low curiosity; switching targets."); selectPinkSheep(pinkSheep); beginNotice(); return true; }
+            if (pinkSheep != null && allowFamiliarity(PatchesFamiliarity.Category.PINK_SHEEP, PatchesCuriosityPriority.MEDIUM)) { report("PRIORITY", "A Pink Sheep is more interesting than the current low curiosity; switching targets."); selectPinkSheep(pinkSheep); clearExploration(); beginNotice(); return true; }
             BlockPos archaeology = findNearbyArchaeology();
-            if (archaeology != null) { report("PRIORITY", "An archaeology find is more interesting than the current low curiosity; switching targets."); selectArchaeology(archaeology); beginNotice(); return true; }
+            if (archaeology != null && allowFamiliarity(PatchesFamiliarity.Category.ARCHAEOLOGY, PatchesCuriosityPriority.MEDIUM)) { report("PRIORITY", "An archaeology find is more interesting than the current low curiosity; switching targets."); selectArchaeology(archaeology); clearExploration(); beginNotice(); return true; }
             BlockPos lootContainer = findNearbyLootContainer();
-            if (lootContainer != null) { report("PRIORITY", "An unopened generated container is more interesting than the current low curiosity; switching targets."); selectLootContainer(lootContainer); beginNotice(); return true; }
+            if (lootContainer != null && allowFamiliarity(PatchesFamiliarity.Category.LOOT_CONTAINER, PatchesCuriosityPriority.MEDIUM)) { report("PRIORITY", "An unopened generated container is more interesting than the current low curiosity; switching targets."); selectLootContainer(lootContainer); clearExploration(); beginNotice(); return true; }
             Entity lootVehicle = findNearbyLootVehicle();
-            if (lootVehicle != null) { report("PRIORITY", "An unopened loot vehicle is more interesting than the current low curiosity; switching targets."); selectLootVehicle(lootVehicle); beginNotice(); return true; }
+            if (lootVehicle != null && allowFamiliarity(PatchesFamiliarity.Category.LOOT_VEHICLE, PatchesCuriosityPriority.MEDIUM)) { report("PRIORITY", "An unopened loot vehicle is more interesting than the current low curiosity; switching targets."); selectLootVehicle(lootVehicle); clearExploration(); beginNotice(); return true; }
         }
         return false;
     }
@@ -641,6 +674,9 @@ public final class PatchesCuriosityGoal extends Goal {
 
     private void finish(boolean remember) {
         if (remember) {
+            if (targetKind == TargetKind.GEODE && geode != null) patches.rememberGeode(geode);
+            double score = familiarity.record(currentCategory(), patches.level().getGameTime());
+            report("FAMILIARITY", currentCategory() + " completed; score=" + String.format(java.util.Locale.ROOT, "%.2f", score) + "/8 (decays 1/minute).");
             if (targetKind == TargetKind.FLOWER && blockTarget != null) patches.rememberFlowerCuriosity(blockTarget);
             if (targetKind == TargetKind.LOW_BLOCK && blockMemoryTarget != null) patches.rememberLowBlockCuriosity(blockMemoryTarget);
             if ((targetKind == TargetKind.AXOLOTL || targetKind == TargetKind.BLUE_AXOLOTL) && axolotlTarget != null) patches.rememberAxolotlCuriosity(axolotlTarget.getUUID());
@@ -653,11 +689,13 @@ public final class PatchesCuriosityGoal extends Goal {
             if (targetKind == TargetKind.LOOT_VEHICLE && lootVehicleTarget != null) patches.rememberLootVehicleCuriosity(lootVehicleTarget.getUUID());
             if (targetKind == TargetKind.VALUABLE_BLOCK && blockTarget != null) patches.rememberValuableCuriosity(valuableKind(blockTarget), blockTarget);
         }
+        clearExploration();
         patches.getNavigation().stop(); patches.clearActivityExpression(); targetKind = null; targetPriority = null; blockTarget = null; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; pinkSheepTarget = null; trappedAllayTarget = null; lootVehicleTarget = null;
         phase = Phase.IDLE; phaseTicks = 0; cooldownTicks = GENERAL_COOLDOWN_TICKS; beckonCycleTicks = 0; beckonHops = 0;
     }
 
     private boolean targetStillValid() {
+        if (targetKind == TargetKind.GEODE) return geode != null && blockTarget != null && patches.level().hasChunkAt(blockTarget) && PatchesGeode.isInterior(patches.level().getBlockState(blockTarget));
         if (targetKind == TargetKind.FLOWER) return blockTarget != null && patches.level().getBlockState(blockTarget).is(BlockTags.FLOWERS);
         if (targetKind == TargetKind.LOW_BLOCK) return blockTarget != null && isLowCuriosityBlock(blockTarget);
         if (targetKind == TargetKind.VALUABLE_BLOCK) return blockTarget != null && isValuableBlock(blockTarget);
@@ -974,13 +1012,31 @@ public final class PatchesCuriosityGoal extends Goal {
     private Player relevantPlayer() { Player followed = patches.getFollowingPlayer(); if (followed != null) return followed; return patches.level().getNearestPlayer(patches, 12.0); }
     private void lookAt(Vec3 target) { patches.getLookControl().setLookAt(target.x, target.y, target.z, 20.0F, patches.getMaxHeadXRot()); }
     private void lookAtAxolotl() { patches.getLookControl().setLookAt(axolotlTarget, 20.0F, patches.getMaxHeadXRot()); }
-    private void lookAtWanderingTrader() { patches.getLookControl().setLookAt(wanderingTraderTarget, 20.0F, patches.getMaxHeadXRot()); }
+    private void lookAtWanderingTrader() {
+        long now = patches.level().getGameTime();
+        boolean groupPhase = phase == Phase.INSPECT || phase == Phase.PLAYER_INVITE || phase == Phase.SHARE_REACTION;
+        if (groupPhase && now >= nextCaravanLook) {
+            nextCaravanLook = now + 60 + patches.getRandom().nextInt(41);
+            List<TraderLlama> llamas = patches.level().getEntitiesOfClass(TraderLlama.class,
+                    wanderingTraderTarget.getBoundingBox().inflate(8.0), llama -> llama.isAlive()
+                            && llama.getLeashHolder() == wanderingTraderTarget && patches.hasLineOfSight(llama));
+            caravanLook = llamas.isEmpty() ? null : llamas.get(patches.getRandom().nextInt(llamas.size()));
+            caravanLookUntil = now + 20;
+            if (caravanLook != null) report("CARAVAN", "Glancing at this Trader's leashed llama; memory stays on Trader UUID.");
+        }
+        if (groupPhase && now < caravanLookUntil && caravanLook != null && caravanLook.isAlive()
+                && caravanLook.getLeashHolder() == wanderingTraderTarget && caravanLook.distanceTo(wanderingTraderTarget) <= 8
+                && patches.hasLineOfSight(caravanLook)) {
+            patches.getLookControl().setLookAt(caravanLook, 20.0F, patches.getMaxHeadXRot());
+        } else patches.getLookControl().setLookAt(wanderingTraderTarget, 20.0F, patches.getMaxHeadXRot());
+    }
     private void lookAtSniffer() { patches.getLookControl().setLookAt(snifferTarget, 20.0F, patches.getMaxHeadXRot()); }
     private void lookAtPinkSheep() { patches.getLookControl().setLookAt(pinkSheepTarget, 20.0F, patches.getMaxHeadXRot()); }
     private void lookAtTrappedAllay() { patches.getLookControl().setLookAt(trappedAllayTarget, 24.0F, patches.getMaxHeadXRot()); }
     private void lookAtLootVehicle() { patches.getLookControl().setLookAt(lootVehicleTarget, 20.0F, patches.getMaxHeadXRot()); }
     private String targetName() {
         return switch (targetKind) {
+            case GEODE -> "an Amethyst Geode";
             case AXOLOTL -> "an Axolotl";
             case BLUE_AXOLOTL -> "a rare Blue Axolotl";
             case WANDERING_TRADER -> "a Wandering Trader";
@@ -1027,6 +1083,293 @@ public final class PatchesCuriosityGoal extends Goal {
     }
     private void report(String state, String detail) { if (!DEBUG_CURIOSITY) return; Player player = relevantPlayer(); if (player != null) player.sendSystemMessage(Component.literal("[Patches] CURIOSITY: " + state + " — " + detail)); }
 
-    private enum TargetKind { FLOWER, LOW_BLOCK, AXOLOTL, BLUE_AXOLOTL, PINK_SHEEP, TRAPPED_ALLAY, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, LOOT_CONTAINER, LOOT_VEHICLE, VALUABLE_BLOCK }
+    private boolean allowFamiliarity(PatchesFamiliarity.Category category, PatchesCuriosityPriority priority) {
+        var decision = familiarity.evaluate(category, priority, patches.level().getGameTime(), () -> patches.getRandom().nextDouble());
+        if (decision.fresh() && decision.skipChance() > 0) report("FAMILIARITY", String.format(java.util.Locale.ROOT,
+                "%s score=%.2f skip=%.1f%%: %s for this 10-second window", category, decision.score(),
+                decision.skipChance() * 100, decision.allowed() ? "eligible" : "less eager"));
+        return decision.allowed();
+    }
+
+    private PatchesFamiliarity.Category valuableCategory(BlockPos pos) {
+        return switch (valuableKind(pos)) {
+            case "emerald" -> PatchesFamiliarity.Category.EMERALD;
+            case "ancient_debris" -> PatchesFamiliarity.Category.ANCIENT_DEBRIS;
+            default -> PatchesFamiliarity.Category.DIAMOND;
+        };
+    }
+
+    private PatchesFamiliarity.Category currentCategory() {
+        return targetKind == TargetKind.VALUABLE_BLOCK ? valuableCategory(blockTarget)
+                : PatchesFamiliarity.Category.valueOf(targetKind.name());
+    }
+
+    private void clearExploration() {
+        discovery = false; discoveryPlayer = null; leadWaiting = false;
+        geode = null; geodeLooks = List.of(); observationPoint = null;
+        failedProgress = 0; lastObservationDistance = Double.POSITIVE_INFINITY;
+        lastPlayerPosition = null; nextProgressCheck = 0;
+        caravanLook = null; nextCaravanLook = 0; caravanLookUntil = 0;
+    }
+
+    private boolean chooseGeode() {
+        long now = patches.level().getGameTime();
+        if (now < nextGeodeScan) return false;
+        nextGeodeScan = now + 100;
+        BlockPos origin = patches.blockPosition();
+        Set<BlockPos> checked = new HashSet<>();
+        int structuralChecks = 0;
+        for (BlockPos seed : BlockPos.betweenClosed(origin.offset(-7, -3, -7), origin.offset(7, 3, 7))) {
+            if (seed.distSqr(origin) > SCAN_RADIUS * SCAN_RADIUS || checked.contains(seed)
+                    || !patches.level().hasChunkAt(seed) || !PatchesGeode.isInterior(patches.level().getBlockState(seed))
+                    || !canSeeBlock(seed)) continue;
+            if (++structuralChecks > 2) break;
+            PatchesGeode.Feature feature = PatchesGeode.recognize(seed,
+                    pos -> patches.level().hasChunkAt(pos) ? patches.level().getBlockState(pos) : null);
+            if (feature == null) continue;
+            checked.addAll(feature.interior());
+            if (patches.hasRememberedGeode(feature)) continue;
+            if (!allowFamiliarity(PatchesFamiliarity.Category.GEODE, PatchesCuriosityPriority.LOW)) return false;
+            BlockPos observation = findObservationPoint(seed, 5.0, true);
+            if (observation == null) { report("GEODE", "Visible layered feature; no reachable observation point with multiple interior views."); continue; }
+            List<BlockPos> looks = geodeVisiblePoints(feature, observation);
+            if (looks.size() < 2) continue;
+            clearExploration();
+            geode = feature; geodeLooks = looks; observationPoint = observation;
+            targetKind = TargetKind.GEODE; targetPriority = PatchesCuriosityPriority.LOW;
+            blockTarget = seed.immutable(); blockMemoryTarget = feature.min();
+            activityStarted = now; nextProgressCheck = now + 20;
+            report("GEODE", "One layered feature, " + feature.interior().size() + " inner blocks; "
+                    + looks.size() + " look points, observation=" + observation.toShortString());
+            return true;
+        }
+        return false;
+    }
+
+    private List<BlockPos> geodeVisiblePoints(PatchesGeode.Feature feature, BlockPos observation) {
+        Vec3 eye = Vec3.atBottomCenterOf(observation).add(0, patches.getEyeHeight(), 0);
+        List<BlockPos> points = new ArrayList<>();
+        for (BlockPos pos : feature.interior()) {
+            if (pos.distSqr(observation) > 100 || !canSeeBlockFrom(eye, pos)) continue;
+            if (points.stream().anyMatch(other -> other.distSqr(pos) < 4)) continue;
+            points.add(pos);
+            if (points.size() == 6) break;
+        }
+        return List.copyOf(points);
+    }
+
+    private void tickGeode() {
+        long now = patches.level().getGameTime();
+        if (now - activityStarted > 900) { report("GEODE", "Observation timed out."); finish(false); return; }
+        if (patches.getMode() == PatchesMode.FOLLOWING) {
+            Player player = patches.getFollowingPlayer();
+            if (player == null || patches.distanceTo(player) >= 8) { report("GEODE", "Player left this Low interest behind."); finish(false); return; }
+        }
+        if (phase == Phase.APPROACH) {
+            lookAt(Vec3.atCenterOf(blockTarget));
+            if (patches.distanceToSqr(Vec3.atBottomCenterOf(observationPoint)) <= 1.0) {
+                patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = FLOWER_INSPECT_TICKS;
+                report("INSPECT", "Looking around the geode interior.");
+            } else moveToObservation(now);
+            return;
+        }
+        // Keep the tested Low cadence; only replace its subject gaze with distinct interior points.
+        if (phase == Phase.INSPECT || phase == Phase.SHARE_WAIT) {
+            List<BlockPos> visible = geodeLooks.stream().filter(pos -> patches.level().hasChunkAt(pos)
+                    && PatchesGeode.isInterior(patches.level().getBlockState(pos)) && canSeeBlock(pos)).toList();
+            if (visible.size() < 2) { report("GEODE", "Lost the interior view."); finish(false); return; }
+            blockTarget = visible.get((int) ((now - activityStarted) / 16 % visible.size()));
+        }
+        tickLowBlock();
+    }
+
+    /** Actual walkable feet position, collision box, reachable path, and sight from that position. */
+    private BlockPos findObservationPoint(BlockPos subject, double range, boolean multipleGeodeViews) {
+        List<BlockPos> candidates = new ArrayList<>();
+        int radius = (int) Math.ceil(range);
+        for (BlockPos pos : BlockPos.betweenClosed(subject.offset(-radius, -3, -radius), subject.offset(radius, 3, radius))) {
+            Vec3 feet = Vec3.atBottomCenterOf(pos);
+            if (feet.distanceToSqr(Vec3.atCenterOf(subject)) > range * range || !patches.level().hasChunkAt(pos)) continue;
+            if (WalkNodeEvaluator.getPathTypeStatic(patches, pos) != PathType.WALKABLE) continue;
+            if (!patches.level().noCollision(patches, patches.getBoundingBox().move(feet.subtract(patches.position())))) continue;
+            if (!canSeeBlockFrom(feet.add(0, patches.getEyeHeight(), 0), subject)) continue;
+            candidates.add(pos.immutable());
+        }
+        candidates.sort(Comparator.comparingDouble(pos -> patches.distanceToSqr(Vec3.atBottomCenterOf(pos))));
+        int attempts = 0;
+        for (BlockPos pos : candidates) {
+            if (++attempts > 24) break;
+            if (multipleGeodeViews) {
+                int points = 0;
+                Vec3 eye = Vec3.atBottomCenterOf(pos).add(0, patches.getEyeHeight(), 0);
+                for (BlockPos nearby : BlockPos.betweenClosed(subject.offset(-3, -3, -3), subject.offset(3, 3, 3))) {
+                    if (nearby.distSqr(subject) < 4 || !patches.level().hasChunkAt(nearby)) continue;
+                    if (PatchesGeode.isInterior(patches.level().getBlockState(nearby)) && canSeeBlockFrom(eye, nearby)) { points++; break; }
+                }
+                if (points == 0) continue;
+            }
+            var path = patches.getNavigation().createPath(pos, 0);
+            if (path != null && path.canReach()) return pos;
+        }
+        return null;
+    }
+
+    private boolean canSeeBlockFrom(Vec3 eye, BlockPos pos) {
+        BlockHitResult hit = patches.level().clip(new ClipContext(eye, Vec3.atCenterOf(pos), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, patches));
+        return hit.getType() == HitResult.Type.BLOCK && hit.getBlockPos().equals(pos);
+    }
+
+    private boolean discoveryReady() {
+        Player player = patches.getFollowingPlayer();
+        return patches.hasSpyglass() && patches.getMode() == PatchesMode.FOLLOWING && !patches.isSleeping()
+                && player != null && player.isAlive() && !player.isSpectator() && patches.distanceTo(player) <= 6.0;
+    }
+
+    private record DiscoveryCandidate(BlockPos pos, TargetKind kind, PatchesCuriosityPriority priority) {}
+
+    private boolean chooseDiscoveryTarget() {
+        long now = patches.level().getGameTime();
+        if (!discoveryReady() || now < nextDiscoveryScan) return false;
+        nextDiscoveryScan = now + 100;
+        BlockPos origin = patches.blockPosition();
+        List<DiscoveryCandidate> candidates = new ArrayList<>();
+        for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-18, -4, -18), origin.offset(18, 4, 18))) {
+            double distance = pos.distSqr(origin);
+            if (distance > DISCOVERY_RADIUS * DISCOVERY_RADIUS || !patches.level().hasChunkAt(pos)) continue;
+            TargetKind kind; PatchesCuriosityPriority priority;
+            if (isValuableBlock(pos) && !patches.hasRememberedValuableCuriosityNear(valuableKind(pos), pos)) {
+                kind = TargetKind.VALUABLE_BLOCK; priority = PatchesCuriosityPriority.HIGH;
+            } else if (isUnresolvedArchaeology(pos) && !patches.hasRememberedArchaeologyCuriosity(pos)) {
+                kind = TargetKind.ARCHAEOLOGY; priority = PatchesCuriosityPriority.MEDIUM;
+            } else if (isUnresolvedLootContainer(pos) && !patches.hasRememberedLootContainerCuriosity(canonicalLootContainerPos(pos))) {
+                kind = TargetKind.LOOT_CONTAINER; priority = PatchesCuriosityPriority.MEDIUM;
+            } else continue;
+            if (!canSeeBlock(pos)) continue;
+            candidates.add(new DiscoveryCandidate(pos.immutable(), kind, priority));
+        }
+        candidates.sort(Comparator.<DiscoveryCandidate>comparingInt(candidate -> -candidate.priority().ordinal())
+                .thenComparingDouble(candidate -> candidate.pos().distSqr(origin)));
+        int attempts = 0;
+        for (DiscoveryCandidate candidate : candidates) {
+            var category = candidate.kind() == TargetKind.VALUABLE_BLOCK ? valuableCategory(candidate.pos())
+                    : PatchesFamiliarity.Category.valueOf(candidate.kind().name());
+            if (!allowFamiliarity(category, candidate.priority())) continue;
+            if (++attempts > 6) break;
+            BlockPos observation = findObservationPoint(candidate.pos(), 1.9, false);
+            if (observation == null) continue;
+            switch (candidate.kind()) {
+                case VALUABLE_BLOCK -> selectValuableBlock(candidate.pos());
+                case ARCHAEOLOGY -> selectArchaeology(candidate.pos());
+                case LOOT_CONTAINER -> selectLootContainer(candidate.pos());
+                default -> throw new IllegalStateException("Unapproved Discovery target");
+            }
+            startDiscovery(observation, now);
+            return true;
+        }
+        List<Entity> vehicles = patches.level().getEntitiesOfClass(Entity.class,
+                patches.getBoundingBox().inflate(DISCOVERY_RADIUS, 4, DISCOVERY_RADIUS), entity -> entity.isAlive()
+                        && hasUnresolvedVehicleLoot(entity) && !patches.hasRememberedLootVehicleCuriosity(entity.getUUID())
+                        && patches.distanceToSqr(entity) <= DISCOVERY_RADIUS * DISCOVERY_RADIUS && patches.hasLineOfSight(entity));
+        vehicles.sort(Comparator.comparingDouble(patches::distanceToSqr));
+        attempts = 0;
+        for (Entity vehicle : vehicles) {
+            if (++attempts > 4) break;
+            if (!allowFamiliarity(PatchesFamiliarity.Category.LOOT_VEHICLE, PatchesCuriosityPriority.MEDIUM)) break;
+            var path = patches.getNavigation().createPath(vehicle, 1);
+            if (path == null || !path.canReach()) continue;
+            selectLootVehicle(vehicle);
+            startDiscovery(vehicle.blockPosition(), now);
+            return true;
+        }
+        return false;
+    }
+
+    private void startDiscovery(BlockPos observation, long now) {
+        clearExploration();
+        discovery = true; discoveryPlayer = patches.getFollowingPlayer(); observationPoint = observation;
+        activityStarted = now; nextProgressCheck = now + 20;
+        lastPlayerPosition = discoveryPlayer.position();
+        report("DISCOVERY", "Leading to " + targetName() + "; pause at 8 blocks, resume within 4.5; Follow safety unchanged.");
+    }
+
+    private boolean validateDiscovery() {
+        long now = patches.level().getGameTime();
+        String reason = null;
+        if (!patches.hasSpyglass() || patches.getMode() != PatchesMode.FOLLOWING || patches.isSleeping()) reason = "equipment or command changed";
+        else if (discoveryPlayer == null || patches.getFollowingPlayer() != discoveryPlayer || !discoveryPlayer.isAlive()
+                || discoveryPlayer.isSpectator() || discoveryPlayer.level() != patches.level()) reason = "player unavailable";
+        else if (patches.hurtTime > 0) reason = "hurt interrupts exploration";
+        else if (patches.distanceTo(discoveryPlayer) >= 12) reason = "Follow catch-up distance reached";
+        else if (now - activityStarted > 1200) reason = "exploration time budget exhausted";
+        else if (patches.tickCount % 20 == 0) {
+            boolean visible = targetKind == TargetKind.LOOT_VEHICLE ? lootVehicleTarget != null && patches.hasLineOfSight(lootVehicleTarget)
+                    : blockTarget != null && patches.level().hasChunkAt(blockTarget) && canSeeBlock(blockTarget);
+            if (!visible) reason = "discovery no longer visible";
+            if (lastPlayerPosition != null && patches.distanceTo(discoveryPlayer) > 6) {
+                Vec3 movement = discoveryPlayer.position().subtract(lastPlayerPosition);
+                Vec3 away = discoveryPlayer.position().subtract(patches.position()).normalize();
+                if (movement.dot(away) > 0.7) reason = "player is leaving the lead";
+            }
+            lastPlayerPosition = discoveryPlayer.position();
+        }
+        if (reason != null) { report("DISCOVERY STOP", reason + "; target remains unremembered."); finish(false); return false; }
+        return true;
+    }
+
+    private void tickDiscoveryLead() {
+        long now = patches.level().getGameTime();
+        double separation = patches.distanceTo(discoveryPlayer);
+        if (!leadWaiting && separation >= 8) {
+            leadWaiting = true; leadWaitStarted = now; beckonCycleTicks = 0;
+            patches.getNavigation().stop(); report("DISCOVERY WAIT", "Waiting for player to join the lead.");
+        }
+        if (leadWaiting) {
+            patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.SURPRISED);
+            if (separation <= 4.5) {
+                leadWaiting = false; failedProgress = 0; lastObservationDistance = Double.POSITIVE_INFINITY;
+                nextProgressCheck = now + 20; report("DISCOVERY LEAD", "Player joined; continuing.");
+            } else {
+                int cycle = beckonCycleTicks++ % 60;
+                if (cycle < 38) {
+                    patches.getLookControl().setLookAt(discoveryPlayer, 30, patches.getMaxHeadXRot());
+                    if ((cycle == 4 || cycle == 18) && patches.onGround()) {
+                        Vec3 motion = patches.getDeltaMovement(); patches.setDeltaMovement(motion.x, 0.34, motion.z);
+                    }
+                } else lookAt(discoverySubject());
+                if (now - leadWaitStarted >= 200) { report("DISCOVERY STOP", "Player did not join after 10 seconds."); finish(false); }
+                return;
+            }
+        }
+        patches.setActivityExpression(PatchesExpression.SURPRISED); lookAt(discoverySubject());
+        boolean reached = targetKind == TargetKind.LOOT_VEHICLE ? patches.distanceTo(lootVehicleTarget) <= AXOLOTL_COMFORT_DISTANCE
+                : patches.distanceToSqr(Vec3.atBottomCenterOf(observationPoint)) <= 0.64;
+        if (reached) {
+            patches.getNavigation().stop(); phase = Phase.INSPECT;
+            phaseTicks = targetPriority == PatchesCuriosityPriority.HIGH ? VALUABLE_INSPECT_TICKS : AXOLOTL_INSPECT_TICKS;
+            report("DISCOVERY INSPECT", "Arrived; using the existing " + targetPriority + " inspection/share routine.");
+            return;
+        }
+        if (targetKind == TargetKind.LOOT_VEHICLE) observationPoint = lootVehicleTarget.blockPosition();
+        moveToObservation(now);
+    }
+
+    private Vec3 discoverySubject() {
+        return targetKind == TargetKind.LOOT_VEHICLE ? lootVehicleTarget.position().add(0, lootVehicleTarget.getBbHeight() * 0.5, 0)
+                : Vec3.atCenterOf(blockTarget);
+    }
+
+    private void moveToObservation(long now) {
+        if (now < nextProgressCheck) return;
+        nextProgressCheck = now + 20;
+        Vec3 feet = Vec3.atBottomCenterOf(observationPoint);
+        double distance = patches.position().distanceTo(feet);
+        boolean started = patches.getNavigation().moveTo(feet.x, feet.y, feet.z, APPROACH_SPEED);
+        if (!started || lastObservationDistance - distance < 0.1) failedProgress++;
+        else failedProgress = 0;
+        lastObservationDistance = distance;
+        if (failedProgress >= 4) { report(discovery ? "DISCOVERY STOP" : "GEODE", "Four failed/no-progress path checks; giving up cleanly."); finish(false); }
+    }
+
+    private enum TargetKind { GEODE, FLOWER, LOW_BLOCK, AXOLOTL, BLUE_AXOLOTL, PINK_SHEEP, TRAPPED_ALLAY, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, LOOT_CONTAINER, LOOT_VEHICLE, VALUABLE_BLOCK }
     private enum Phase { IDLE, NOTICE, APPROACH, INSPECT, SHARE_WAIT, PLAYER_INVITE, BECKON, SHARE_REACTION }
 }
