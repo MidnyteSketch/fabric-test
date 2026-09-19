@@ -31,14 +31,14 @@ public final class PatchesCuriosityGoal extends Goal {
     private static final int FLOWER_SHARE_WAIT_TICKS = 20 * 8;
     private static final int AXOLOTL_INSPECT_TICKS = 50;
     private static final int AXOLOTL_INVITE_TICKS = 20 * 8;
-    private static final int DIAMOND_INSPECT_TICKS = 50;
-    private static final int DIAMOND_BECKON_TICKS = 20 * 14;
+    private static final int VALUABLE_INSPECT_TICKS = 50;
+    private static final int VALUABLE_BECKON_TICKS = 20 * 14;
     private static final int SHARE_REACTION_TICKS = 60;
     private static final double SCAN_RADIUS = 7.0;
     private static final double FLOWER_APPROACH_DISTANCE = 1.75;
     private static final double LOW_BLOCK_HORIZONTAL_APPROACH_DISTANCE = 1.75;
     private static final double LOW_BLOCK_MAX_VERTICAL_LOOK_DISTANCE = 4.0;
-    private static final double DIAMOND_APPROACH_DISTANCE = 2.0;
+    private static final double VALUABLE_APPROACH_DISTANCE = 2.0;
     private static final double AXOLOTL_COMFORT_DISTANCE = 3.0;
     private static final double AXOLOTL_REPOSITION_DISTANCE = 4.0;
     private static final double AXOLOTL_ABANDON_DISTANCE = 9.0;
@@ -103,7 +103,7 @@ public final class PatchesCuriosityGoal extends Goal {
             case SNIFFER -> tickSniffer();
             case ARCHAEOLOGY -> tickArchaeology();
             case WANDERING_TRADER -> tickWanderingTrader();
-            case DIAMOND -> tickDiamond();
+            case VALUABLE_BLOCK -> tickValuableBlock();
         }
     }
 
@@ -254,22 +254,22 @@ public final class PatchesCuriosityGoal extends Goal {
         }
     }
 
-    private void tickDiamond() {
+    private void tickValuableBlock() {
         Vec3 center = Vec3.atCenterOf(blockTarget);
         switch (phase) {
             case NOTICE -> { patches.setActivityExpression(PatchesExpression.SURPRISED); lookAt(center); if (--phaseTicks <= 0) enterApproach(); }
             case APPROACH -> {
                 patches.setActivityExpression(PatchesExpression.SURPRISED); lookAt(center);
-                if (Math.sqrt(patches.distanceToSqr(center)) <= DIAMOND_APPROACH_DISTANCE) {
-                    patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = DIAMOND_INSPECT_TICKS;
-                    report("INSPECT", "Reached Diamond Ore; excitedly checking the find.");
+                if (Math.sqrt(patches.distanceToSqr(center)) <= VALUABLE_APPROACH_DISTANCE) {
+                    patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = VALUABLE_INSPECT_TICKS;
+                    report("INSPECT", "Reached " + targetName() + "; excitedly checking the find.");
                 } else if (patches.getNavigation().isDone() || patches.tickCount % 10 == 0) patches.getNavigation().moveTo(center.x, center.y, center.z, APPROACH_SPEED);
             }
             case INSPECT -> {
                 patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.SURPRISED); lookAt(center);
-                if (--phaseTicks <= 0) { phase = Phase.BECKON; phaseTicks = DIAMOND_BECKON_TICKS; beckonCycleTicks = 0; beckonHops = 0; report("BECKON", "This is special; actively calling the player over."); }
+                if (--phaseTicks <= 0) { phase = Phase.BECKON; phaseTicks = VALUABLE_BECKON_TICKS; beckonCycleTicks = 0; beckonHops = 0; report("BECKON", "This is special; actively calling the player over."); }
             }
-            case BECKON -> tickDiamondBeckon(center);
+            case BECKON -> tickValuableBlockBeckon(center);
             case SHARE_REACTION -> {
                 patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.LAUGH_TONGUE);
                 // Own both body-facing rotations during the celebration so normal mob controls do not cancel the spin.
@@ -279,19 +279,19 @@ public final class PatchesCuriosityGoal extends Goal {
                 patches.yHeadRot = celebrationYaw;
                 patches.yBodyRotO = celebrationYaw;
                 patches.yHeadRotO = celebrationYaw;
-                if (--phaseTicks <= 0) { report("COMPLETE", "Finished celebrating the Diamond discovery."); finish(true); }
+                if (--phaseTicks <= 0) { report("COMPLETE", "Finished celebrating the " + targetName() + " discovery."); finish(true); }
             }
             default -> { }
         }
     }
 
-    private void tickDiamondBeckon(Vec3 diamondCenter) {
+    private void tickValuableBlockBeckon(Vec3 valuableCenter) {
         patches.getNavigation().stop();
         patches.setActivityExpression(PatchesExpression.SURPRISED);
         Player player = relevantPlayer();
         if (player != null && patches.distanceTo(player) <= SHARE_PLAYER_DISTANCE) {
             phase = Phase.SHARE_REACTION; phaseTicks = SHARE_REACTION_TICKS;
-            report("SHARE REACTION", "Player arrived; celebrating the Diamond find."); return;
+            report("SHARE REACTION", "Player arrived; celebrating the " + targetName() + " find."); return;
         }
 
         // 60-tick loop: face player and make two short hops, pause, glance back at the diamond, repeat.
@@ -304,12 +304,12 @@ public final class PatchesCuriosityGoal extends Goal {
                 beckonHops++;
             }
         } else {
-            lookAt(diamondCenter);
+            lookAt(valuableCenter);
             if (cycle == 59) beckonHops = 0;
         }
 
         if (--phaseTicks <= 0) {
-            report("COMPLETE", "Player did not come over; remembered the important Diamond discovery.");
+            report("COMPLETE", "Player did not come over; remembered the important " + targetName() + " discovery.");
             finish(true);
         }
     }
@@ -317,8 +317,8 @@ public final class PatchesCuriosityGoal extends Goal {
     @Override public void stop() { if (phase != Phase.IDLE) finish(false); }
 
     private boolean chooseBestNearbyTarget() {
-        BlockPos diamond = findNearbyDiamond();
-        if (diamond != null) { selectDiamond(diamond); return true; }
+        BlockPos valuable = findNearbyValuableBlock();
+        if (valuable != null) { selectValuableBlock(valuable); return true; }
         Axolotl axolotl = findNearbyAxolotl();
         if (axolotl != null) { selectAxolotl(axolotl); return true; }
         WanderingTrader trader = findNearbyWanderingTrader();
@@ -336,8 +336,8 @@ public final class PatchesCuriosityGoal extends Goal {
 
     private boolean tryUpgradeTarget() {
         if (targetPriority != PatchesCuriosityPriority.HIGH) {
-            BlockPos diamond = findNearbyDiamond();
-            if (diamond != null) { report("PRIORITY", "A Diamond discovery outranks the current curiosity; switching targets."); selectDiamond(diamond); beginNotice(); return true; }
+            BlockPos diamond = findNearbyValuableBlock();
+            if (valuable != null) { report("PRIORITY", "A valuable discovery outranks the current curiosity; switching targets."); selectValuableBlock(valuable); beginNotice(); return true; }
         }
         if (targetPriority == PatchesCuriosityPriority.LOW) {
             Axolotl axolotl = findNearbyAxolotl();
@@ -363,7 +363,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private void selectWanderingTrader(WanderingTrader trader) { targetKind = TargetKind.WANDERING_TRADER; targetPriority = PatchesCuriosityPriority.MEDIUM; wanderingTraderTarget = trader; axolotlTarget = null; snifferTarget = null; blockTarget = null; blockMemoryTarget = null; }
     private void selectSniffer(Sniffer sniffer) { targetKind = TargetKind.SNIFFER; targetPriority = PatchesCuriosityPriority.MEDIUM; snifferTarget = sniffer; axolotlTarget = null; wanderingTraderTarget = null; blockTarget = null; blockMemoryTarget = null; }
     private void selectArchaeology(BlockPos pos) { targetKind = TargetKind.ARCHAEOLOGY; targetPriority = PatchesCuriosityPriority.MEDIUM; blockTarget = pos.immutable(); blockMemoryTarget = pos.immutable(); axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; }
-    private void selectDiamond(BlockPos diamond) { targetKind = TargetKind.DIAMOND; targetPriority = PatchesCuriosityPriority.HIGH; blockTarget = diamond.immutable(); blockMemoryTarget = diamond.immutable(); axolotlTarget = null; wanderingTraderTarget = null; }
+    private void selectValuableBlock(BlockPos valuable) { targetKind = TargetKind.VALUABLE_BLOCK; targetPriority = PatchesCuriosityPriority.HIGH; blockTarget = valuable.immutable(); blockMemoryTarget = valuable.immutable(); axolotlTarget = null; wanderingTraderTarget = null; }
 
     private void beginNotice() { phase = Phase.NOTICE; phaseTicks = 8; patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.SURPRISED); report("NOTICE", "Spotted " + targetName() + " (" + targetPriority + ")."); }
     private void enterApproach() { phase = Phase.APPROACH; report("APPROACH", "Going over to investigate " + targetName() + "."); }
@@ -376,7 +376,7 @@ public final class PatchesCuriosityGoal extends Goal {
             if (targetKind == TargetKind.WANDERING_TRADER && wanderingTraderTarget != null) patches.rememberWanderingTraderCuriosity(wanderingTraderTarget.getUUID());
             if (targetKind == TargetKind.SNIFFER && snifferTarget != null) patches.rememberSnifferCuriosity(snifferTarget.getUUID());
             if (targetKind == TargetKind.ARCHAEOLOGY && blockTarget != null) patches.rememberArchaeologyCuriosity(blockTarget);
-            if (targetKind == TargetKind.DIAMOND && blockTarget != null) patches.rememberDiamondCuriosity(blockTarget);
+            if (targetKind == TargetKind.VALUABLE_BLOCK && blockTarget != null) patches.rememberValuableCuriosity(valuableKind(blockTarget), blockTarget);
         }
         patches.getNavigation().stop(); patches.clearActivityExpression(); targetKind = null; targetPriority = null; blockTarget = null; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null;
         phase = Phase.IDLE; phaseTicks = 0; cooldownTicks = GENERAL_COOLDOWN_TICKS; beckonCycleTicks = 0; beckonHops = 0;
@@ -385,7 +385,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private boolean targetStillValid() {
         if (targetKind == TargetKind.FLOWER) return blockTarget != null && patches.level().getBlockState(blockTarget).is(BlockTags.FLOWERS);
         if (targetKind == TargetKind.LOW_BLOCK) return blockTarget != null && isLowCuriosityBlock(blockTarget);
-        if (targetKind == TargetKind.DIAMOND) return blockTarget != null && isDiamondOre(blockTarget);
+        if (targetKind == TargetKind.VALUABLE_BLOCK) return blockTarget != null && isValuableBlock(blockTarget);
         if (targetKind == TargetKind.WANDERING_TRADER) return wanderingTraderTarget != null && wanderingTraderTarget.isAlive() && !wanderingTraderTarget.isRemoved() && wanderingTraderTarget.level() == patches.level();
         if (targetKind == TargetKind.SNIFFER) return snifferTarget != null && snifferTarget.isAlive() && !snifferTarget.isRemoved() && snifferTarget.level() == patches.level();
         if (targetKind == TargetKind.ARCHAEOLOGY) return blockTarget != null && isUnresolvedArchaeology(blockTarget);
@@ -449,10 +449,10 @@ public final class PatchesCuriosityGoal extends Goal {
         return best;
     }
 
-    private BlockPos findNearbyDiamond() {
+    private BlockPos findNearbyValuableBlock() {
         BlockPos origin = patches.blockPosition(); int radius = (int)Math.ceil(SCAN_RADIUS); BlockPos best = null; double bestDistance = Double.MAX_VALUE;
         for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-radius, -3, -radius), origin.offset(radius, 3, radius))) {
-            if (!isDiamondOre(pos) || patches.hasRememberedDiamondCuriosityNear(pos) || !canSeeBlock(pos)) continue;
+            if (!isValuableBlock(pos) || patches.hasRememberedValuableCuriosityNear(valuableKind(pos), pos) || !canSeeBlock(pos)) continue;
             double distance = pos.distSqr(origin); if (distance > SCAN_RADIUS * SCAN_RADIUS || distance >= bestDistance) continue;
             best = pos.immutable(); bestDistance = distance;
         }
@@ -524,7 +524,18 @@ public final class PatchesCuriosityGoal extends Goal {
         return hit.getBlockPos().equals(pos);
     }
 
-    private boolean isDiamondOre(BlockPos pos) { return patches.level().getBlockState(pos).is(Blocks.DIAMOND_ORE) || patches.level().getBlockState(pos).is(Blocks.DEEPSLATE_DIAMOND_ORE); }
+    private boolean isValuableBlock(BlockPos pos) {
+        var state = patches.level().getBlockState(pos);
+        return state.is(Blocks.DIAMOND_ORE) || state.is(Blocks.DEEPSLATE_DIAMOND_ORE)
+                || state.is(Blocks.EMERALD_ORE) || state.is(Blocks.DEEPSLATE_EMERALD_ORE)
+                || state.is(Blocks.ANCIENT_DEBRIS);
+    }
+    private String valuableKind(BlockPos pos) {
+        var state = patches.level().getBlockState(pos);
+        if (state.is(Blocks.EMERALD_ORE) || state.is(Blocks.DEEPSLATE_EMERALD_ORE)) return "emerald";
+        if (state.is(Blocks.ANCIENT_DEBRIS)) return "ancient_debris";
+        return "diamond";
+    }
     private boolean followDistanceIsUrgent() { if (patches.getMode() != PatchesMode.FOLLOWING) return false; Player player = patches.getFollowingPlayer(); return player != null && patches.distanceTo(player) >= HURRY_INTERRUPT_DISTANCE; }
     private Player relevantPlayer() { Player followed = patches.getFollowingPlayer(); if (followed != null) return followed; return patches.level().getNearestPlayer(patches, 12.0); }
     private void lookAt(Vec3 target) { patches.getLookControl().setLookAt(target.x, target.y, target.z, 20.0F, patches.getMaxHeadXRot()); }
@@ -537,7 +548,12 @@ public final class PatchesCuriosityGoal extends Goal {
             case WANDERING_TRADER -> "a Wandering Trader";
             case SNIFFER -> "a Sniffer";
             case ARCHAEOLOGY -> patches.level().getBlockState(blockTarget).is(Blocks.SUSPICIOUS_SAND) ? "Suspicious Sand" : "Suspicious Gravel";
-            case DIAMOND -> "Diamond Ore";
+            case VALUABLE_BLOCK -> {
+                var state = patches.level().getBlockState(blockTarget);
+                if (state.is(Blocks.EMERALD_ORE) || state.is(Blocks.DEEPSLATE_EMERALD_ORE)) yield "Emerald Ore";
+                if (state.is(Blocks.ANCIENT_DEBRIS)) yield "Ancient Debris";
+                yield "Diamond Ore";
+            }
             case LOW_BLOCK -> {
                 var state = patches.level().getBlockState(blockTarget);
                 if (state.is(Blocks.FIREFLY_BUSH)) yield "a Firefly Bush";
@@ -553,6 +569,6 @@ public final class PatchesCuriosityGoal extends Goal {
     }
     private void report(String state, String detail) { if (!DEBUG_CURIOSITY) return; Player player = relevantPlayer(); if (player != null) player.sendSystemMessage(Component.literal("[Patches] CURIOSITY: " + state + " — " + detail)); }
 
-    private enum TargetKind { FLOWER, LOW_BLOCK, AXOLOTL, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, DIAMOND }
+    private enum TargetKind { FLOWER, LOW_BLOCK, AXOLOTL, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, VALUABLE_BLOCK }
     private enum Phase { IDLE, NOTICE, APPROACH, INSPECT, SHARE_WAIT, PLAYER_INVITE, BECKON, SHARE_REACTION }
 }
