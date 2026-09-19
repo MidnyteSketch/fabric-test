@@ -54,8 +54,6 @@ public final class PatchesCuriosityGoal extends Goal {
     private static final double SHARE_PLAYER_DISTANCE = 4.0;
     private static final double HURRY_INTERRUPT_DISTANCE = 16.0;
     private static final double APPROACH_SPEED = 0.85;
-    private static final int ALLAY_CAGE_SEARCH_RADIUS = 7;
-    private static final double ALLAY_ENCLOSURE_RAY_DISTANCE = 6.5;
 
     private final PatchesEntity patches;
     private TargetKind targetKind;
@@ -713,12 +711,7 @@ public final class PatchesCuriosityGoal extends Goal {
         if (!hasNearbyAllayCageMaterial(allay)) return false;
         Vec3 center = allay.position().add(0.0, allay.getBbHeight() * 0.5, 0.0);
         int blockedSides = 0;
-        Vec3[] directions = {
-                new Vec3(ALLAY_ENCLOSURE_RAY_DISTANCE, 0.0, 0.0),
-                new Vec3(-ALLAY_ENCLOSURE_RAY_DISTANCE, 0.0, 0.0),
-                new Vec3(0.0, 0.0, ALLAY_ENCLOSURE_RAY_DISTANCE),
-                new Vec3(0.0, 0.0, -ALLAY_ENCLOSURE_RAY_DISTANCE)
-        };
+        Vec3[] directions = { new Vec3(3.5, 0.0, 0.0), new Vec3(-3.5, 0.0, 0.0), new Vec3(0.0, 0.0, 3.5), new Vec3(0.0, 0.0, -3.5) };
         for (Vec3 direction : directions) {
             BlockHitResult hit = patches.level().clip(new ClipContext(center, center.add(direction), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, allay));
             if (hit.getType() != HitResult.Type.MISS) blockedSides++;
@@ -728,9 +721,7 @@ public final class PatchesCuriosityGoal extends Goal {
 
     private boolean hasNearbyAllayCageMaterial(Allay allay) {
         BlockPos center = allay.blockPosition();
-        for (BlockPos pos : BlockPos.betweenClosed(
-                center.offset(-ALLAY_CAGE_SEARCH_RADIUS, -3, -ALLAY_CAGE_SEARCH_RADIUS),
-                center.offset(ALLAY_CAGE_SEARCH_RADIUS, 4, ALLAY_CAGE_SEARCH_RADIUS))) {
+        for (BlockPos pos : BlockPos.betweenClosed(center.offset(-4, -2, -4), center.offset(4, 3, 4))) {
             if (isAllayCageMaterial(pos)) return true;
         }
         return false;
@@ -752,29 +743,7 @@ public final class PatchesCuriosityGoal extends Goal {
                 center.add(0.0, 0.0, halfWidth),
                 center.add(0.0, 0.0, -halfWidth)
         };
-
-        // Direct sight through a fence/bar opening remains the preferred case.
-        for (Vec3 sample : samples) {
-            if (rayCanPassAllayCage(patches.getEyePosition(), sample, allay)) return true;
-        }
-
-        // Mansion cells use a small iron-bar window in a much larger stone wall.
-        // If Patches can see that window and the Allay is visible from just inside it,
-        // treat the window as the perceptual opening rather than requiring one perfect
-        // eye-to-Allay ray through the narrow bars.
-        BlockPos allayPos = allay.blockPosition();
-        for (BlockPos barrier : BlockPos.betweenClosed(
-                allayPos.offset(-ALLAY_CAGE_SEARCH_RADIUS, -3, -ALLAY_CAGE_SEARCH_RADIUS),
-                allayPos.offset(ALLAY_CAGE_SEARCH_RADIUS, 4, ALLAY_CAGE_SEARCH_RADIUS))) {
-            if (!isAllayCageMaterial(barrier) || !canSeeBlock(barrier)) continue;
-
-            Vec3 barrierCenter = Vec3.atCenterOf(barrier);
-            Vec3 towardAllay = center.subtract(barrierCenter);
-            if (towardAllay.lengthSqr() < 1.0e-6) continue;
-            Vec3 justInside = barrierCenter.add(towardAllay.normalize().scale(0.6));
-            if (rayCanPassAllayCage(justInside, center, allay)) return true;
-        }
-
+        for (Vec3 sample : samples) if (rayCanPassAllayCage(patches.getEyePosition(), sample, allay)) return true;
         return false;
     }
 
@@ -797,9 +766,7 @@ public final class PatchesCuriosityGoal extends Goal {
         BlockPos center = allay.blockPosition();
         BlockPos best = null;
         double bestDistance = Double.MAX_VALUE;
-        for (BlockPos barrier : BlockPos.betweenClosed(
-                center.offset(-ALLAY_CAGE_SEARCH_RADIUS, -3, -ALLAY_CAGE_SEARCH_RADIUS),
-                center.offset(ALLAY_CAGE_SEARCH_RADIUS, 4, ALLAY_CAGE_SEARCH_RADIUS))) {
+        for (BlockPos barrier : BlockPos.betweenClosed(center.offset(-4, -2, -4), center.offset(4, 3, 4))) {
             if (!isAllayCageMaterial(barrier)) continue;
             BlockPos[] candidates = { barrier.north(), barrier.south(), barrier.east(), barrier.west() };
             for (BlockPos candidate : candidates) {
