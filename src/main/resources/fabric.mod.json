@@ -7,6 +7,7 @@
   "authors": ["Midnyte"],
   "license": "ARR",
   "environment": "*",
+  "mixins": ["patches.mixins.json"],
   "entrypoints": {
     "main": ["com.midnyte.patches.PatchesMod"],
     "client": ["com.midnyte.patches.client.PatchesClient"]
