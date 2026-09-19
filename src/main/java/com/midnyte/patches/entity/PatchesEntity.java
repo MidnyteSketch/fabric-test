@@ -56,6 +56,7 @@ public final class PatchesEntity extends PathfinderMob {
     private final Set<UUID> rememberedWanderingTraderCuriosities = new HashSet<>();
     private final Set<UUID> rememberedSnifferCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedArchaeologyCuriosities = new HashSet<>();
+    private final Set<BlockPos> rememberedLootContainerCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedDiamondCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedEmeraldCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedAncientDebrisCuriosities = new HashSet<>();
@@ -101,6 +102,8 @@ public final class PatchesEntity extends PathfinderMob {
     public boolean hasRememberedSnifferCuriosity(UUID uuid) { return rememberedSnifferCuriosities.contains(uuid); }
     public void rememberArchaeologyCuriosity(BlockPos pos) { rememberedArchaeologyCuriosities.add(pos.immutable()); }
     public boolean hasRememberedArchaeologyCuriosity(BlockPos pos) { return rememberedArchaeologyCuriosities.contains(pos); }
+    public void rememberLootContainerCuriosity(BlockPos pos) { rememberedLootContainerCuriosities.add(pos.immutable()); }
+    public boolean hasRememberedLootContainerCuriosity(BlockPos pos) { return rememberedLootContainerCuriosities.contains(pos); }
     public void rememberValuableCuriosity(String kind, BlockPos pos) { valuableMemory(kind).add(pos.immutable()); }
     public boolean hasRememberedValuableCuriosityNear(String kind, BlockPos pos) {
         int radiusSq = VALUABLE_MEMORY_RADIUS * VALUABLE_MEMORY_RADIUS;
@@ -180,6 +183,7 @@ public final class PatchesEntity extends PathfinderMob {
         output.putString("PatchesRememberedWanderingTraders", encodeWanderingTraderMemory());
         output.putString("PatchesRememberedSniffers", encodeSnifferMemory());
         output.putString("PatchesRememberedArchaeology", encodeBlockPositions(rememberedArchaeologyCuriosities));
+        output.putString("PatchesRememberedLootContainers", encodeBlockPositions(rememberedLootContainerCuriosities));
         output.putString("PatchesRememberedDiamonds", encodeBlockPositions(rememberedDiamondCuriosities));
         output.putString("PatchesRememberedEmeralds", encodeBlockPositions(rememberedEmeraldCuriosities));
         output.putString("PatchesRememberedAncientDebris", encodeBlockPositions(rememberedAncientDebrisCuriosities));
@@ -195,6 +199,7 @@ public final class PatchesEntity extends PathfinderMob {
         decodeWanderingTraderMemory(input.getStringOr("PatchesRememberedWanderingTraders", ""));
         decodeSnifferMemory(input.getStringOr("PatchesRememberedSniffers", ""));
         decodeBlockPositions(input.getStringOr("PatchesRememberedArchaeology", ""), rememberedArchaeologyCuriosities);
+        decodeBlockPositions(input.getStringOr("PatchesRememberedLootContainers", ""), rememberedLootContainerCuriosities);
         decodeBlockPositions(input.getStringOr("PatchesRememberedDiamonds", ""), rememberedDiamondCuriosities);
         decodeBlockPositions(input.getStringOr("PatchesRememberedEmeralds", ""), rememberedEmeraldCuriosities);
         decodeBlockPositions(input.getStringOr("PatchesRememberedAncientDebris", ""), rememberedAncientDebrisCuriosities);
