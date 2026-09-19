@@ -261,7 +261,7 @@ public final class PatchesCuriosityGoal extends Goal {
 
     private boolean targetStillValid() {
         if (targetKind == TargetKind.FLOWER) return blockTarget != null && patches.level().getBlockState(blockTarget).is(BlockTags.FLOWERS);
-        if (targetKind == TargetKind.LOW_BLOCK) return blockTarget != null && isLowCuriosityBlock(blockTarget) && canSeeBlock(blockTarget);
+        if (targetKind == TargetKind.LOW_BLOCK) return blockTarget != null && isLowCuriosityBlock(blockTarget);
         if (targetKind == TargetKind.DIAMOND) return blockTarget != null && isDiamondOre(blockTarget);
         return axolotlTarget != null && axolotlTarget.isAlive() && !axolotlTarget.isRemoved() && axolotlTarget.level() == patches.level();
     }
@@ -276,9 +276,11 @@ public final class PatchesCuriosityGoal extends Goal {
     private BlockPos findNearbyFlower() {
         BlockPos origin = patches.blockPosition(); int radius = (int)Math.ceil(SCAN_RADIUS); BlockPos best = null; double bestDistance = Double.MAX_VALUE;
         for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-radius, -2, -radius), origin.offset(radius, 2, radius))) {
-            if (patches.hasRememberedFlowerCuriosity(pos) || !patches.level().getBlockState(pos).is(BlockTags.FLOWERS) || !canSeeBlock(pos)) continue;
-            double distance = pos.distSqr(origin); if (distance > SCAN_RADIUS * SCAN_RADIUS || distance >= bestDistance) continue;
-            best = pos.immutable(); bestDistance = distance;
+            if (!patches.level().getBlockState(pos).is(BlockTags.FLOWERS) || !canSeeBlock(pos)) continue;
+            BlockPos curiosityPos = canonicalVerticalPlantPos(pos);
+            if (patches.hasRememberedFlowerCuriosity(curiosityPos)) continue;
+            double distance = curiosityPos.distSqr(origin); if (distance > SCAN_RADIUS * SCAN_RADIUS || distance >= bestDistance) continue;
+            best = curiosityPos; bestDistance = distance;
         }
         return best;
     }
@@ -296,11 +298,25 @@ public final class PatchesCuriosityGoal extends Goal {
     private BlockPos findNearbyLowBlock() {
         BlockPos origin = patches.blockPosition(); int radius = (int)Math.ceil(SCAN_RADIUS); BlockPos best = null; double bestDistance = Double.MAX_VALUE;
         for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-radius, -2, -radius), origin.offset(radius, 2, radius))) {
-            if (patches.hasRememberedLowBlockCuriosity(pos) || !isLowCuriosityBlock(pos) || !canSeeBlock(pos)) continue;
-            double distance = pos.distSqr(origin); if (distance > SCAN_RADIUS * SCAN_RADIUS || distance >= bestDistance) continue;
-            best = pos.immutable(); bestDistance = distance;
+            if (!isLowCuriosityBlock(pos) || !canSeeBlock(pos)) continue;
+            BlockPos curiosityPos = canonicalVerticalPlantPos(pos);
+            if (patches.hasRememberedLowBlockCuriosity(curiosityPos)) continue;
+            double distance = curiosityPos.distSqr(origin); if (distance > SCAN_RADIUS * SCAN_RADIUS || distance >= bestDistance) continue;
+            best = curiosityPos; bestDistance = distance;
         }
         return best;
+    }
+
+    /**
+     * Treat vertically connected pieces of the same plant block as one curiosity.
+     * Small Dripleaf and two-block flowers otherwise appear as separate block positions
+     * even though Patches should understand them as one plant.
+     */
+    private BlockPos canonicalVerticalPlantPos(BlockPos pos) {
+        var block = patches.level().getBlockState(pos).getBlock();
+        BlockPos canonical = pos.immutable();
+        while (patches.level().getBlockState(canonical.below()).getBlock() == block) canonical = canonical.below();
+        return canonical;
     }
 
     private boolean isLowCuriosityBlock(BlockPos pos) {
