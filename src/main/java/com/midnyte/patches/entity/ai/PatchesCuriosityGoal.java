@@ -68,6 +68,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private int beckonHops;
 
     public void resetCooldownForDebug() { cooldownTicks = 0; scanTicks = SCAN_INTERVAL_TICKS; }
+    public void interruptForRecall() { if (phase != Phase.IDLE) finish(false); }
 
     public PatchesCuriosityGoal(PatchesEntity patches) {
         this.patches = patches;
