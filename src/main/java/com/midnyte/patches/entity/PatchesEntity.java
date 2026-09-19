@@ -56,6 +56,8 @@ public final class PatchesEntity extends PathfinderMob {
     private final Set<UUID> rememberedAxolotlCuriosities = new HashSet<>();
     private final Set<UUID> rememberedWanderingTraderCuriosities = new HashSet<>();
     private final Set<UUID> rememberedSnifferCuriosities = new HashSet<>();
+    private final Set<UUID> rememberedPinkSheepCuriosities = new HashSet<>();
+    private final Set<UUID> rememberedTrappedAllayCuriosities = new HashSet<>();
     private final Set<UUID> rememberedLootVehicleCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedArchaeologyCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedLootContainerCuriosities = new HashSet<>();
@@ -103,6 +105,10 @@ public final class PatchesEntity extends PathfinderMob {
     public boolean hasRememberedWanderingTraderCuriosity(UUID uuid) { return rememberedWanderingTraderCuriosities.contains(uuid); }
     public void rememberSnifferCuriosity(UUID uuid) { rememberedSnifferCuriosities.add(uuid); }
     public boolean hasRememberedSnifferCuriosity(UUID uuid) { return rememberedSnifferCuriosities.contains(uuid); }
+    public void rememberPinkSheepCuriosity(UUID uuid) { rememberedPinkSheepCuriosities.add(uuid); }
+    public boolean hasRememberedPinkSheepCuriosity(UUID uuid) { return rememberedPinkSheepCuriosities.contains(uuid); }
+    public void rememberTrappedAllayCuriosity(UUID uuid) { rememberedTrappedAllayCuriosities.add(uuid); }
+    public boolean hasRememberedTrappedAllayCuriosity(UUID uuid) { return rememberedTrappedAllayCuriosities.contains(uuid); }
     public void rememberLootVehicleCuriosity(UUID uuid) { rememberedLootVehicleCuriosities.add(uuid); }
     public boolean hasRememberedLootVehicleCuriosity(UUID uuid) { return rememberedLootVehicleCuriosities.contains(uuid); }
     public void rememberArchaeologyCuriosity(BlockPos pos) { rememberedArchaeologyCuriosities.add(pos.immutable()); }
@@ -184,6 +190,10 @@ public final class PatchesEntity extends PathfinderMob {
     private void decodeWanderingTraderMemory(String encoded) { rememberedWanderingTraderCuriosities.clear(); if (encoded.isEmpty()) return; for (String entry : encoded.split(";")) { try { rememberedWanderingTraderCuriosities.add(UUID.fromString(entry)); } catch (IllegalArgumentException ignored) { } } }
     private String encodeSnifferMemory() { StringBuilder encoded = new StringBuilder(); for (UUID uuid : rememberedSnifferCuriosities) { if (!encoded.isEmpty()) encoded.append(';'); encoded.append(uuid); } return encoded.toString(); }
     private void decodeSnifferMemory(String encoded) { rememberedSnifferCuriosities.clear(); if (encoded.isEmpty()) return; for (String entry : encoded.split(";")) { try { rememberedSnifferCuriosities.add(UUID.fromString(entry)); } catch (IllegalArgumentException ignored) { } } }
+    private String encodePinkSheepMemory() { StringBuilder encoded = new StringBuilder(); for (UUID uuid : rememberedPinkSheepCuriosities) { if (!encoded.isEmpty()) encoded.append(';'); encoded.append(uuid); } return encoded.toString(); }
+    private void decodePinkSheepMemory(String encoded) { rememberedPinkSheepCuriosities.clear(); if (encoded.isEmpty()) return; for (String entry : encoded.split(";")) { try { rememberedPinkSheepCuriosities.add(UUID.fromString(entry)); } catch (IllegalArgumentException ignored) { } } }
+    private String encodeTrappedAllayMemory() { StringBuilder encoded = new StringBuilder(); for (UUID uuid : rememberedTrappedAllayCuriosities) { if (!encoded.isEmpty()) encoded.append(';'); encoded.append(uuid); } return encoded.toString(); }
+    private void decodeTrappedAllayMemory(String encoded) { rememberedTrappedAllayCuriosities.clear(); if (encoded.isEmpty()) return; for (String entry : encoded.split(";")) { try { rememberedTrappedAllayCuriosities.add(UUID.fromString(entry)); } catch (IllegalArgumentException ignored) { } } }
     private String encodeLootVehicleMemory() { StringBuilder encoded = new StringBuilder(); for (UUID uuid : rememberedLootVehicleCuriosities) { if (!encoded.isEmpty()) encoded.append(';'); encoded.append(uuid); } return encoded.toString(); }
     private void decodeLootVehicleMemory(String encoded) { rememberedLootVehicleCuriosities.clear(); if (encoded.isEmpty()) return; for (String entry : encoded.split(";")) { try { rememberedLootVehicleCuriosities.add(UUID.fromString(entry)); } catch (IllegalArgumentException ignored) { } } }
 
@@ -196,6 +206,8 @@ public final class PatchesEntity extends PathfinderMob {
         output.putString("PatchesRememberedAxolotls", encodeAxolotlMemory());
         output.putString("PatchesRememberedWanderingTraders", encodeWanderingTraderMemory());
         output.putString("PatchesRememberedSniffers", encodeSnifferMemory());
+        output.putString("PatchesRememberedPinkSheep", encodePinkSheepMemory());
+        output.putString("PatchesRememberedTrappedAllays", encodeTrappedAllayMemory());
         output.putString("PatchesRememberedLootVehicles", encodeLootVehicleMemory());
         output.putString("PatchesRememberedArchaeology", encodeBlockPositions(rememberedArchaeologyCuriosities));
         output.putString("PatchesRememberedLootContainers", encodeBlockPositions(rememberedLootContainerCuriosities));
@@ -213,6 +225,8 @@ public final class PatchesEntity extends PathfinderMob {
         decodeAxolotlMemory(input.getStringOr("PatchesRememberedAxolotls", ""));
         decodeWanderingTraderMemory(input.getStringOr("PatchesRememberedWanderingTraders", ""));
         decodeSnifferMemory(input.getStringOr("PatchesRememberedSniffers", ""));
+        decodePinkSheepMemory(input.getStringOr("PatchesRememberedPinkSheep", ""));
+        decodeTrappedAllayMemory(input.getStringOr("PatchesRememberedTrappedAllays", ""));
         decodeLootVehicleMemory(input.getStringOr("PatchesRememberedLootVehicles", ""));
         decodeBlockPositions(input.getStringOr("PatchesRememberedArchaeology", ""), rememberedArchaeologyCuriosities);
         decodeBlockPositions(input.getStringOr("PatchesRememberedLootContainers", ""), rememberedLootContainerCuriosities);
