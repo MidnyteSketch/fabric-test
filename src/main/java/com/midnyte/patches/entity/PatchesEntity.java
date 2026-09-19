@@ -52,6 +52,7 @@ public final class PatchesEntity extends PathfinderMob {
     private final Set<BlockPos> rememberedFlowerCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedLowBlockCuriosities = new HashSet<>();
     private final Set<UUID> rememberedAxolotlCuriosities = new HashSet<>();
+    private final Set<UUID> rememberedWanderingTraderCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedDiamondCuriosities = new HashSet<>();
 
     public PatchesEntity(EntityType<? extends PatchesEntity> entityType, Level level) { super(entityType, level); }
@@ -88,6 +89,8 @@ public final class PatchesEntity extends PathfinderMob {
     public boolean hasRememberedLowBlockCuriosity(BlockPos pos) { return rememberedLowBlockCuriosities.contains(pos); }
     public void rememberAxolotlCuriosity(UUID uuid) { rememberedAxolotlCuriosities.add(uuid); }
     public boolean hasRememberedAxolotlCuriosity(UUID uuid) { return rememberedAxolotlCuriosities.contains(uuid); }
+    public void rememberWanderingTraderCuriosity(UUID uuid) { rememberedWanderingTraderCuriosities.add(uuid); }
+    public boolean hasRememberedWanderingTraderCuriosity(UUID uuid) { return rememberedWanderingTraderCuriosities.contains(uuid); }
     public void rememberDiamondCuriosity(BlockPos pos) { rememberedDiamondCuriosities.add(pos.immutable()); }
     public boolean hasRememberedDiamondCuriosityNear(BlockPos pos) {
         int radiusSq = DIAMOND_MEMORY_RADIUS * DIAMOND_MEMORY_RADIUS;
@@ -135,6 +138,8 @@ public final class PatchesEntity extends PathfinderMob {
     private void decodeBlockPositions(String encoded, Set<BlockPos> destination) { destination.clear(); if (encoded.isEmpty()) return; for (String entry : encoded.split(";")) { String[] xyz = entry.split(","); if (xyz.length != 3) continue; try { destination.add(new BlockPos(Integer.parseInt(xyz[0]), Integer.parseInt(xyz[1]), Integer.parseInt(xyz[2]))); } catch (NumberFormatException ignored) { } } }
     private String encodeAxolotlMemory() { StringBuilder encoded = new StringBuilder(); for (UUID uuid : rememberedAxolotlCuriosities) { if (!encoded.isEmpty()) encoded.append(';'); encoded.append(uuid); } return encoded.toString(); }
     private void decodeAxolotlMemory(String encoded) { rememberedAxolotlCuriosities.clear(); if (encoded.isEmpty()) return; for (String entry : encoded.split(";")) { try { rememberedAxolotlCuriosities.add(UUID.fromString(entry)); } catch (IllegalArgumentException ignored) { } } }
+    private String encodeWanderingTraderMemory() { StringBuilder encoded = new StringBuilder(); for (UUID uuid : rememberedWanderingTraderCuriosities) { if (!encoded.isEmpty()) encoded.append(';'); encoded.append(uuid); } return encoded.toString(); }
+    private void decodeWanderingTraderMemory(String encoded) { rememberedWanderingTraderCuriosities.clear(); if (encoded.isEmpty()) return; for (String entry : encoded.split(";")) { try { rememberedWanderingTraderCuriosities.add(UUID.fromString(entry)); } catch (IllegalArgumentException ignored) { } } }
 
     @Override protected void addAdditionalSaveData(ValueOutput output) {
         super.addAdditionalSaveData(output); output.putInt("PatchesMode", getMode().id()); output.putInt("PatchesModeBeforeSitting", modeBeforeSitting.id()); output.storeNullable("PatchesFollowingPlayer", UUIDUtil.CODEC, followingPlayerUuid);
@@ -143,6 +148,7 @@ public final class PatchesEntity extends PathfinderMob {
         output.putString("PatchesRememberedFlowers", encodeBlockPositions(rememberedFlowerCuriosities));
         output.putString("PatchesRememberedLowBlocks", encodeBlockPositions(rememberedLowBlockCuriosities));
         output.putString("PatchesRememberedAxolotls", encodeAxolotlMemory());
+        output.putString("PatchesRememberedWanderingTraders", encodeWanderingTraderMemory());
         output.putString("PatchesRememberedDiamonds", encodeBlockPositions(rememberedDiamondCuriosities));
     }
 
@@ -153,6 +159,7 @@ public final class PatchesEntity extends PathfinderMob {
         decodeBlockPositions(input.getStringOr("PatchesRememberedFlowers", ""), rememberedFlowerCuriosities);
         decodeBlockPositions(input.getStringOr("PatchesRememberedLowBlocks", ""), rememberedLowBlockCuriosities);
         decodeAxolotlMemory(input.getStringOr("PatchesRememberedAxolotls", ""));
+        decodeWanderingTraderMemory(input.getStringOr("PatchesRememberedWanderingTraders", ""));
         decodeBlockPositions(input.getStringOr("PatchesRememberedDiamonds", ""), rememberedDiamondCuriosities);
         expressionOverrideTicks = 0; updateExpression();
     }
