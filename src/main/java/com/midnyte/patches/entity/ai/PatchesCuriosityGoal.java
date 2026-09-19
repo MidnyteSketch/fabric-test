@@ -1396,10 +1396,18 @@ public final class PatchesCuriosityGoal extends Goal {
         nextProgressCheck = now + 20;
         Vec3 feet = Vec3.atBottomCenterOf(observationPoint);
         double distance = patches.position().distanceTo(feet);
-        boolean started = patches.getNavigation().moveTo(feet.x, feet.y, feet.z, APPROACH_SPEED);
-        if (!started || lastObservationDistance - distance < 0.1) failedProgress++;
+
+        // Execute the same kind of path we validated when choosing the observation point.
+        // Calling moveTo(x,y,z) asks navigation to solve the destination again and can reject
+        // a perfectly valid walkable observation cell, especially in uneven cave geometry.
+        var path = patches.getNavigation().createPath(observationPoint, 0);
+        boolean started = path != null && path.canReach() && patches.getNavigation().moveTo(path, APPROACH_SPEED);
+
+        if (!started || (lastObservationDistance < Double.POSITIVE_INFINITY
+                && lastObservationDistance - distance < 0.1)) failedProgress++;
         else failedProgress = 0;
         lastObservationDistance = distance;
+
         if (failedProgress >= 4) {
             String state = discovery ? "DISCOVERY STOP" : targetKind == TargetKind.GEODE ? "GEODE" : "INTERRUPTED";
             report(state, "Four failed/no-progress path checks while approaching " + targetName() + "; giving up cleanly.");
