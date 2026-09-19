@@ -44,7 +44,7 @@ public final class PatchesEntity extends PathfinderMob {
     private static final int OTHER_FOOD_TICKS = 12;
     private static final int HURT_FACE_TICKS = 12;
     private static final double COOKIE_NOTICE_RANGE = 10.0;
-    private static final int DIAMOND_MEMORY_RADIUS = 5;
+    private static final int VALUABLE_MEMORY_RADIUS = 5;
 
     private PatchesMode modeBeforeSitting = PatchesMode.WANDERING;
     private @Nullable UUID followingPlayerUuid;
@@ -56,6 +56,8 @@ public final class PatchesEntity extends PathfinderMob {
     private final Set<UUID> rememberedSnifferCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedArchaeologyCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedDiamondCuriosities = new HashSet<>();
+    private final Set<BlockPos> rememberedEmeraldCuriosities = new HashSet<>();
+    private final Set<BlockPos> rememberedAncientDebrisCuriosities = new HashSet<>();
 
     public PatchesEntity(EntityType<? extends PatchesEntity> entityType, Level level) { super(entityType, level); }
 
@@ -97,11 +99,18 @@ public final class PatchesEntity extends PathfinderMob {
     public boolean hasRememberedSnifferCuriosity(UUID uuid) { return rememberedSnifferCuriosities.contains(uuid); }
     public void rememberArchaeologyCuriosity(BlockPos pos) { rememberedArchaeologyCuriosities.add(pos.immutable()); }
     public boolean hasRememberedArchaeologyCuriosity(BlockPos pos) { return rememberedArchaeologyCuriosities.contains(pos); }
-    public void rememberDiamondCuriosity(BlockPos pos) { rememberedDiamondCuriosities.add(pos.immutable()); }
-    public boolean hasRememberedDiamondCuriosityNear(BlockPos pos) {
-        int radiusSq = DIAMOND_MEMORY_RADIUS * DIAMOND_MEMORY_RADIUS;
-        for (BlockPos remembered : rememberedDiamondCuriosities) if (remembered.distSqr(pos) <= radiusSq) return true;
+    public void rememberValuableCuriosity(String kind, BlockPos pos) { valuableMemory(kind).add(pos.immutable()); }
+    public boolean hasRememberedValuableCuriosityNear(String kind, BlockPos pos) {
+        int radiusSq = VALUABLE_MEMORY_RADIUS * VALUABLE_MEMORY_RADIUS;
+        for (BlockPos remembered : valuableMemory(kind)) if (remembered.distSqr(pos) <= radiusSq) return true;
         return false;
+    }
+    private Set<BlockPos> valuableMemory(String kind) {
+        return switch (kind) {
+            case "emerald" -> rememberedEmeraldCuriosities;
+            case "ancient_debris" -> rememberedAncientDebrisCuriosities;
+            default -> rememberedDiamondCuriosities;
+        };
     }
 
     public ItemStack getBundleStack() { return this.entityData.get(BUNDLE); }
@@ -160,6 +169,8 @@ public final class PatchesEntity extends PathfinderMob {
         output.putString("PatchesRememberedSniffers", encodeSnifferMemory());
         output.putString("PatchesRememberedArchaeology", encodeBlockPositions(rememberedArchaeologyCuriosities));
         output.putString("PatchesRememberedDiamonds", encodeBlockPositions(rememberedDiamondCuriosities));
+        output.putString("PatchesRememberedEmeralds", encodeBlockPositions(rememberedEmeraldCuriosities));
+        output.putString("PatchesRememberedAncientDebris", encodeBlockPositions(rememberedAncientDebrisCuriosities));
     }
 
     @Override protected void readAdditionalSaveData(ValueInput input) {
@@ -173,6 +184,8 @@ public final class PatchesEntity extends PathfinderMob {
         decodeSnifferMemory(input.getStringOr("PatchesRememberedSniffers", ""));
         decodeBlockPositions(input.getStringOr("PatchesRememberedArchaeology", ""), rememberedArchaeologyCuriosities);
         decodeBlockPositions(input.getStringOr("PatchesRememberedDiamonds", ""), rememberedDiamondCuriosities);
+        decodeBlockPositions(input.getStringOr("PatchesRememberedEmeralds", ""), rememberedEmeraldCuriosities);
+        decodeBlockPositions(input.getStringOr("PatchesRememberedAncientDebris", ""), rememberedAncientDebrisCuriosities);
         expressionOverrideTicks = 0; updateExpression();
     }
 }
