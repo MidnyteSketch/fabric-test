@@ -2,7 +2,8 @@
   "required": true,
   "package": "com.midnyte.patches.mixin",
   "mixins": [
-    "BrushableBlockEntityAccessor"
+    "BrushableBlockEntityAccessor",
+    "InstrumentItemMixin"
   ],
   "injectors": {
     "defaultRequire": 1
