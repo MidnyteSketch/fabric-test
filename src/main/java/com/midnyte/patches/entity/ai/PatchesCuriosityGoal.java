@@ -355,7 +355,7 @@ public final class PatchesCuriosityGoal extends Goal {
         BlockPos origin = patches.blockPosition(); int radius = (int)Math.ceil(SCAN_RADIUS); BlockPos best = null; double bestDistance = Double.MAX_VALUE;
         for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-radius, -2, -radius), origin.offset(radius, 2, radius))) {
             if (!isLowCuriosityBlock(pos) || !canSeeBlock(pos)) continue;
-            BlockPos curiosityPos = canonicalVerticalPlantPos(pos);
+            BlockPos curiosityPos = canonicalLowBlockPos(pos);
             if (patches.hasRememberedLowBlockCuriosity(curiosityPos)) continue;
             double distance = curiosityPos.distSqr(origin); if (distance > SCAN_RADIUS * SCAN_RADIUS || distance >= bestDistance) continue;
             best = curiosityPos; bestDistance = distance;
