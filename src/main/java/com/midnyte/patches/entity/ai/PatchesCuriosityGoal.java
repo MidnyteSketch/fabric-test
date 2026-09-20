@@ -512,23 +512,15 @@ public final class PatchesCuriosityGoal extends Goal {
             case NOTICE -> { patches.setActivityExpression(PatchesExpression.SURPRISED); lookAtWanderingTrader(); if (--phaseTicks <= 0) enterApproach(); }
             case APPROACH -> {
                 patches.setActivityExpression(PatchesExpression.SURPRISED); lookAtWanderingTrader();
-                if (distance <= AXOLOTL_COMFORT_DISTANCE) { patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = AXOLOTL_INSPECT_TICKS; report("INSPECT", "Reached Wandering Trader; watching the unusual visitor."); }
+                if (distance <= AXOLOTL_COMFORT_DISTANCE) { patches.getNavigation().stop(); phase = Phase.INSPECT; phaseTicks = AXOLOTL_INSPECT_TICKS; report("INSPECT", "Reached Wandering Trader; watching the visitor and caravan."); }
                 else if (patches.getNavigation().isDone() || patches.tickCount % 10 == 0) patches.getNavigation().moveTo(wanderingTraderTarget, APPROACH_SPEED);
             }
             case INSPECT -> {
                 maintainWanderingTraderDistance(); patches.setActivityExpression(PatchesExpression.DEFAULT); lookAtWanderingTrader();
-                if (--phaseTicks <= 0) { phase = Phase.PLAYER_INVITE; phaseTicks = AXOLOTL_INVITE_TICKS; report("PLAYER INVITE", "Looking to player to show off the Wandering Trader."); }
-            }
-            case PLAYER_INVITE -> {
-                maintainWanderingTraderDistance(); patches.setActivityExpression(PatchesExpression.DEFAULT); Player player = relevantPlayer();
-                if (player != null && patches.distanceTo(player) <= SHARE_PLAYER_DISTANCE) { phase = Phase.SHARE_REACTION; phaseTicks = SHARE_REACTION_TICKS; report("SHARE REACTION", "Player came over; sharing the Wandering Trader encounter."); return; }
-                if (player != null && (phaseTicks / 20) % 2 == 0) patches.getLookControl().setLookAt(player, 20.0F, patches.getMaxHeadXRot()); else lookAtWanderingTrader();
-                if (--phaseTicks <= 0) { report("COMPLETE", "Player did not join; finished watching the Wandering Trader."); finish(true); }
-            }
-            case SHARE_REACTION -> {
-                maintainWanderingTraderDistance(); patches.setActivityExpression(PatchesExpression.CONTENT); Player player = relevantPlayer();
-                if (player != null && (phaseTicks / 20) % 2 == 0) patches.getLookControl().setLookAt(player, 20.0F, patches.getMaxHeadXRot()); else lookAtWanderingTrader();
-                if (--phaseTicks <= 0) { report("COMPLETE", "Finished sharing the Wandering Trader encounter."); finish(true); }
+                if (--phaseTicks <= 0) {
+                    report("COMPLETE", "Finished watching the Wandering Trader caravan.");
+                    finish(true);
+                }
             }
             default -> { }
         }
@@ -1047,7 +1039,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private void lookAtAxolotl() { patches.getLookControl().setLookAt(axolotlTarget, 20.0F, patches.getMaxHeadXRot()); }
     private void lookAtWanderingTrader() {
         long now = patches.level().getGameTime();
-        boolean groupPhase = phase == Phase.INSPECT || phase == Phase.PLAYER_INVITE || phase == Phase.SHARE_REACTION;
+        boolean groupPhase = phase == Phase.INSPECT;
         if (groupPhase && now >= nextCaravanLook) {
             nextCaravanLook = now + 60 + patches.getRandom().nextInt(41);
             List<TraderLlama> llamas = patches.level().getEntitiesOfClass(TraderLlama.class,
