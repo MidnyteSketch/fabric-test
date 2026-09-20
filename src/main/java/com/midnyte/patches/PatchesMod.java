@@ -31,19 +31,16 @@ public final class PatchesMod implements ModInitializer {
                             ServerPlayer player = context.getSource().getPlayerOrException();
                             var level = player.level();
 
-                            WanderingTrader trader = EntityType.WANDERING_TRADER.create(level, EntitySpawnReason.COMMAND);
+                            var traderPos = player.blockPosition().offset(3, 0, 0);
+                            WanderingTrader trader = EntityType.WANDERING_TRADER.spawn(level, traderPos, EntitySpawnReason.COMMAND);
                             if (trader == null) return 0;
-                            trader.moveTo(player.getX() + 3.0, player.getY(), player.getZ(), player.getYRot(), 0.0F);
                             trader.setDespawnDelay(48000);
-                            level.addFreshEntity(trader);
 
                             for (int i = 0; i < 2; i++) {
-                                TraderLlama llama = EntityType.TRADER_LLAMA.create(level, EntitySpawnReason.COMMAND);
+                                var llamaPos = traderPos.offset(i == 0 ? -2 : 2, 0, 2);
+                                TraderLlama llama = EntityType.TRADER_LLAMA.spawn(level, llamaPos, EntitySpawnReason.COMMAND);
                                 if (llama == null) continue;
-                                double side = i == 0 ? -1.5 : 1.5;
-                                llama.moveTo(trader.getX() + side, trader.getY(), trader.getZ() + 1.5, trader.getYRot(), 0.0F);
                                 llama.setDespawnDelay(48000);
-                                level.addFreshEntity(llama);
                                 llama.setLeashedTo(trader, true);
                             }
 
