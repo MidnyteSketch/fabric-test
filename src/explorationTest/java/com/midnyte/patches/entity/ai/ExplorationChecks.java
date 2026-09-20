@@ -29,27 +29,51 @@ public final class ExplorationChecks {
     private static void familiarity() {
         var f = new PatchesFamiliarity();
         var flower = PatchesFamiliarity.Category.FLOWER;
-        check(f.evaluate(flower, PatchesCuriosityPriority.LOW, 0, () -> 0).allowed(), "Fresh category must trigger");
+
+        check(f.evaluate(flower, PatchesCuriosityPriority.LOW, 1, 0).allowed(),
+                "An isolated fresh flower should be interesting");
+
         for (int i = 0; i < 3; i++) f.record(flower, 0);
-        check(f.evaluate(flower, PatchesCuriosityPriority.LOW, 0, () -> 0).allowed(), "Three encounters retain grace");
+        var familiarIsolated = f.evaluate(flower, PatchesCuriosityPriority.LOW, 1, 0);
+        check(familiarIsolated.allowed(), "Historical familiarity alone should not quickly suppress an isolated flower");
+        check(Math.abs(familiarIsolated.pressure() - 2.5) < 0.0001,
+                "Flower history is a weaker contribution than local density");
+
+        var denseFlowers = f.evaluate(flower, PatchesCuriosityPriority.LOW, 3, 0);
+        check(!denseFlowers.allowed(), "A locally dense flower scene should saturate quickly");
+        check(Math.abs(denseFlowers.pressure() - 4.5) < 0.0001,
+                "Local density is the primary flower familiarity signal");
+
         for (int i = 0; i < 100; i++) f.record(flower, 0);
-        AtomicInteger rolls = new AtomicInteger();
-        var saturated = f.evaluate(flower, PatchesCuriosityPriority.LOW, 0, () -> { rolls.incrementAndGet(); return 0.1; });
-        check(saturated.score() == 8 && !saturated.allowed(), "Repeated Low encounters saturate and can defer");
-        check(Math.abs(saturated.skipChance() - 0.65) < 0.0001, "Low maximum suppression");
-        for (int i = 1; i < 200; i++) check(!f.evaluate(flower, PatchesCuriosityPriority.LOW, i, () -> { rolls.incrementAndGet(); return 0.99; }).allowed(), "No scan/individual reroll in decision window");
-        check(rolls.get() == 1, "One roll per category/window");
-        check(f.evaluate(flower, PatchesCuriosityPriority.LOW, 200, () -> 0.99).allowed(), "Next window can trigger");
-        check(f.evaluate(PatchesFamiliarity.Category.GEODE, PatchesCuriosityPriority.LOW, 200, () -> 0).score() == 0, "Category independence");
-        check(f.evaluate(flower, PatchesCuriosityPriority.LOW, 8 * 6000, () -> 0).allowed(), "Decay fully restores willingness");
-        for (var priority : PatchesCuriosityPriority.values()) {
-            var category = PatchesFamiliarity.Category.DIAMOND;
-            var fresh = new PatchesFamiliarity();
-            for (int i = 0; i < 20; i++) fresh.record(category, 0);
-            double expected = switch (priority) { case LOW -> 0.65; case MEDIUM -> 0.30; case HIGH -> 0.05; };
-            check(Math.abs(fresh.evaluate(category, priority, 0, () -> 1).skipChance() - expected) < 0.0001, "Tier retains intended protection: " + priority);
-        }
-        check(new PatchesFamiliarity().describe(0).equals("all categories fresh"), "Reload resets only short-term familiarity");
+        var historicallySaturated = f.evaluate(flower, PatchesCuriosityPriority.LOW, 1, 0);
+        check(historicallySaturated.history() == 8.0 && !historicallySaturated.allowed(),
+                "Very high historical flower familiarity can eventually suppress even an isolated example");
+
+        check(f.evaluate(PatchesFamiliarity.Category.GEODE, PatchesCuriosityPriority.LOW, 1, 0).history() == 0.0,
+                "Category history remains independent");
+
+        check(f.evaluate(flower, PatchesCuriosityPriority.LOW, 1, 8L * 20L * 60L * 20L).allowed(),
+                "Slow historical decay eventually restores willingness");
+
+        var medium = new PatchesFamiliarity();
+        check(medium.evaluate(PatchesFamiliarity.Category.AXOLOTL, PatchesCuriosityPriority.MEDIUM, 4, 0).allowed(),
+                "Medium curiosities tolerate a moderately populated local scene");
+        check(!medium.evaluate(PatchesFamiliarity.Category.AXOLOTL, PatchesCuriosityPriority.MEDIUM, 5, 0).allowed(),
+                "A very dense Medium scene can still saturate");
+
+        var valuables = new PatchesFamiliarity();
+        for (int i = 0; i < 20; i++) valuables.record(PatchesFamiliarity.Category.DIAMOND, 0);
+        var diamond = valuables.evaluate(PatchesFamiliarity.Category.DIAMOND, PatchesCuriosityPriority.HIGH, 8, 0);
+        check(diamond.allowed() && Double.isInfinite(diamond.threshold()),
+                "Diamond discoveries are exempt from familiarity suppression");
+
+        var allays = new PatchesFamiliarity();
+        for (int i = 0; i < 20; i++) allays.record(PatchesFamiliarity.Category.TRAPPED_ALLAY, 0);
+        check(allays.evaluate(PatchesFamiliarity.Category.TRAPPED_ALLAY, PatchesCuriosityPriority.HIGH, 8, 0).allowed(),
+                "Trapped Allays are never suppressed by familiarity");
+
+        check(new PatchesFamiliarity().describe(0).equals("all categories historically fresh"),
+                "Reload resets only session historical familiarity");
     }
 
     private static Map<BlockPos, BlockState> shell(int offset) {
