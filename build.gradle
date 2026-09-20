@@ -69,3 +69,17 @@ java {
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
 }
+
+// Deterministic milestone checks without adding a test-library dependency.
+sourceSets {
+    explorationTest {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += output + compileClasspath
+    }
+}
+tasks.register('explorationChecks', JavaExec) {
+    dependsOn explorationTestClasses
+    classpath = sourceSets.explorationTest.runtimeClasspath
+    mainClass = 'com.midnyte.patches.entity.ai.ExplorationChecks'
+}
+tasks.named('check') { dependsOn 'explorationChecks' }

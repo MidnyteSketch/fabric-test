@@ -2,6 +2,7 @@ package com.midnyte.patches.entity;
 
 import com.midnyte.patches.entity.ai.PatchesCuriosityGoal;
 import com.midnyte.patches.entity.ai.PatchesFollowGoal;
+import com.midnyte.patches.entity.ai.PatchesGeode;
 import com.midnyte.patches.entity.ai.PatchesTemptGoal;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.UUIDUtil;
@@ -51,6 +52,7 @@ public final class PatchesEntity extends PathfinderMob {
     private int expressionOverrideTicks;
     private PatchesCuriosityGoal curiosityGoal;
     private PatchesFollowGoal followGoal;
+    private final Set<String> rememberedGeodes = new HashSet<>();
     private final Set<BlockPos> rememberedFlowerCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedLowBlockCuriosities = new HashSet<>();
     private final Set<UUID> rememberedAxolotlCuriosities = new HashSet<>();
@@ -95,6 +97,14 @@ public final class PatchesEntity extends PathfinderMob {
     public void setActivityExpression(PatchesExpression expression) { setExpression(expression); expressionOverrideTicks = 2; }
     public void clearActivityExpression() { expressionOverrideTicks = 0; setExpression(PatchesExpression.DEFAULT); }
 
+    public boolean hasRememberedGeode(PatchesGeode.Feature feature) {
+        String dimension = level().dimension().identifier().toString();
+        return rememberedGeodes.stream().anyMatch(memory -> feature.matchesMemory(dimension, memory));
+    }
+    public void rememberGeode(PatchesGeode.Feature feature) {
+        rememberedGeodes.add(feature.memoryKey(level().dimension().identifier().toString()));
+    }
+
     public void rememberFlowerCuriosity(BlockPos pos) { rememberedFlowerCuriosities.add(pos.immutable()); }
     public boolean hasRememberedFlowerCuriosity(BlockPos pos) { return rememberedFlowerCuriosities.contains(pos); }
     public void rememberLowBlockCuriosity(BlockPos pos) { rememberedLowBlockCuriosities.add(pos.immutable()); }
@@ -138,6 +148,8 @@ public final class PatchesEntity extends PathfinderMob {
 
     public @Nullable Player getFollowingPlayer() { if (followingPlayerUuid == null) return null; if (!(level() instanceof ServerLevel serverLevel)) return null; return serverLevel.getPlayerByUUID(followingPlayerUuid); }
     private void setFollowingPlayer(Player player) { this.followingPlayerUuid = player.getUUID(); }
+
+    public boolean isFollowRejoining() { return followGoal != null && followGoal.isRejoining(); }
 
     public void requestRecallFromHorn(Player player) {
         if (getMode() != PatchesMode.FOLLOWING) return;
@@ -201,6 +213,7 @@ public final class PatchesEntity extends PathfinderMob {
         super.addAdditionalSaveData(output); output.putInt("PatchesMode", getMode().id()); output.putInt("PatchesModeBeforeSitting", modeBeforeSitting.id()); output.storeNullable("PatchesFollowingPlayer", UUIDUtil.CODEC, followingPlayerUuid);
         ItemStack bundle = getBundleStack(); if (!bundle.isEmpty()) output.store("PatchesBundle", ItemStack.CODEC, bundle);
         ItemStack spyglass = getSpyglassStack(); if (!spyglass.isEmpty()) output.store("PatchesSpyglass", ItemStack.CODEC, spyglass);
+        output.putString("PatchesRememberedGeodes", String.join(";", rememberedGeodes));
         output.putString("PatchesRememberedFlowers", encodeBlockPositions(rememberedFlowerCuriosities));
         output.putString("PatchesRememberedLowBlocks", encodeBlockPositions(rememberedLowBlockCuriosities));
         output.putString("PatchesRememberedAxolotls", encodeAxolotlMemory());
@@ -220,6 +233,9 @@ public final class PatchesEntity extends PathfinderMob {
         super.readAdditionalSaveData(input); setMode(PatchesMode.fromId(input.getIntOr("PatchesMode", PatchesMode.WANDERING.id()))); modeBeforeSitting = PatchesMode.fromId(input.getIntOr("PatchesModeBeforeSitting", PatchesMode.WANDERING.id())); followingPlayerUuid = input.read("PatchesFollowingPlayer", UUIDUtil.CODEC).orElse(null);
         ItemStack savedBundle = input.read("PatchesBundle", ItemStack.CODEC).orElse(ItemStack.EMPTY); setBundleStack(savedBundle.isEmpty() || BundleSupport.isBundle(savedBundle) ? savedBundle : ItemStack.EMPTY);
         ItemStack savedSpyglass = input.read("PatchesSpyglass", ItemStack.CODEC).orElse(ItemStack.EMPTY); setSpyglassStack(savedSpyglass.isEmpty() || savedSpyglass.is(Items.SPYGLASS) ? savedSpyglass : ItemStack.EMPTY);
+        rememberedGeodes.clear();
+        String geodes = input.getStringOr("PatchesRememberedGeodes", "");
+        if (!geodes.isEmpty()) java.util.Collections.addAll(rememberedGeodes, geodes.split(";"));
         decodeBlockPositions(input.getStringOr("PatchesRememberedFlowers", ""), rememberedFlowerCuriosities);
         decodeBlockPositions(input.getStringOr("PatchesRememberedLowBlocks", ""), rememberedLowBlockCuriosities);
         decodeAxolotlMemory(input.getStringOr("PatchesRememberedAxolotls", ""));

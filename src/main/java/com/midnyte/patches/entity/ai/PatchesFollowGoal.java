@@ -54,6 +54,9 @@ public final class PatchesFollowGoal extends Goal {
         this.setFlags(EnumSet.of(Flag.MOVE, Flag.LOOK));
     }
 
+    /** Read-only integration gate; does not alter Follow tuning or state. */
+    public boolean isRejoining() { return recallActive || catchUpCommitted; }
+
     public void requestRecall() {
         recallActive = true;
         catchUpCommitted = true;
