@@ -518,7 +518,30 @@ public final class PatchesCuriosityGoal extends Goal {
             case INSPECT -> {
                 maintainWanderingTraderDistance(); patches.setActivityExpression(PatchesExpression.DEFAULT); lookAtWanderingTrader();
                 if (--phaseTicks <= 0) {
-                    report("COMPLETE", "Finished watching the Wandering Trader caravan.");
+                    phase = Phase.PLAYER_INVITE; phaseTicks = AXOLOTL_INVITE_TICKS;
+                    report("PLAYER INVITE", "Continuing to watch the Wandering Trader caravan while waiting for the player.");
+                }
+            }
+            case PLAYER_INVITE -> {
+                maintainWanderingTraderDistance(); patches.setActivityExpression(PatchesExpression.DEFAULT); lookAtWanderingTrader();
+                Player player = relevantPlayer();
+                if (player != null && patches.distanceTo(player) <= SHARE_PLAYER_DISTANCE) {
+                    phase = Phase.SHARE_REACTION; phaseTicks = SHARE_REACTION_TICKS;
+                    report("SHARE REACTION", "Player joined Patches beside the Wandering Trader caravan.");
+                    return;
+                }
+                if (--phaseTicks <= 0) {
+                    report("COMPLETE", "Player did not join; finished watching the Wandering Trader caravan.");
+                    finish(true);
+                }
+            }
+            case SHARE_REACTION -> {
+                maintainWanderingTraderDistance(); patches.setActivityExpression(PatchesExpression.CONTENT);
+                Player player = relevantPlayer();
+                if (player != null) patches.getLookControl().setLookAt(player, 20.0F, patches.getMaxHeadXRot());
+                else lookAtWanderingTrader();
+                if (--phaseTicks <= 0) {
+                    report("COMPLETE", "Finished sharing the Wandering Trader caravan encounter.");
                     finish(true);
                 }
             }
@@ -1039,7 +1062,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private void lookAtAxolotl() { patches.getLookControl().setLookAt(axolotlTarget, 20.0F, patches.getMaxHeadXRot()); }
     private void lookAtWanderingTrader() {
         long now = patches.level().getGameTime();
-        boolean groupPhase = phase == Phase.INSPECT;
+        boolean groupPhase = phase == Phase.INSPECT || phase == Phase.PLAYER_INVITE;
         if (groupPhase && now >= nextCaravanLook) {
             nextCaravanLook = now + 60 + patches.getRandom().nextInt(41);
             List<TraderLlama> llamas = patches.level().getEntitiesOfClass(TraderLlama.class,
