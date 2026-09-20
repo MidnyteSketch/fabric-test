@@ -102,7 +102,7 @@ public final class PatchesCuriosityGoal extends Goal {
 
     public void resetCooldownForDebug() {
         cooldownTicks = 0; scanTicks = SCAN_INTERVAL_TICKS; nextDiscoveryScan = 0; nextGeodeScan = 0;
-        report("FAMILIARITY", familiarity.describe(patches.level().getGameTime()) + "; decays 1 per 5 minutes, resets on reload; exact memories unchanged.");
+        report("FAMILIARITY", familiarity.describe(patches.level().getGameTime()) + "; local visible saturation is primary; history decays 1 per 20 minutes and resets on reload; exact memories unchanged.");
         report("DISCOVERY", discovery ? "Active lead: " + phase : discoveryReady() ? "Armed: Spyglass + Following; search radius 18." : "Inactive: requires Spyglass, Following, and player within 6 blocks.");
     }
     public void interruptForRecall() { if (phase != Phase.IDLE) finish(false); }
@@ -724,7 +724,7 @@ public final class PatchesCuriosityGoal extends Goal {
         if (remember) {
             if (targetKind == TargetKind.GEODE && geode != null) patches.rememberGeode(geode);
             double score = familiarity.record(currentCategory(), patches.level().getGameTime());
-            report("FAMILIARITY", currentCategory() + " completed; score=" + String.format(java.util.Locale.ROOT, "%.2f", score) + "/8 (decays 1 per 5 minutes).");
+            report("FAMILIARITY", currentCategory() + " completed; historical score=" + String.format(java.util.Locale.ROOT, "%.2f", score) + "/8 (local saturation remains primary; history decays 1 per 20 minutes).");
             if (targetKind == TargetKind.FLOWER && blockTarget != null) patches.rememberFlowerCuriosity(blockTarget);
             if (targetKind == TargetKind.LOW_BLOCK && blockMemoryTarget != null) patches.rememberLowBlockCuriosity(blockMemoryTarget);
             if ((targetKind == TargetKind.AXOLOTL || targetKind == TargetKind.BLUE_AXOLOTL) && axolotlTarget != null) patches.rememberAxolotlCuriosity(axolotlTarget.getUUID());
@@ -1132,11 +1132,62 @@ public final class PatchesCuriosityGoal extends Goal {
     private void report(String state, String detail) { if (!DEBUG_CURIOSITY) return; Player player = relevantPlayer(); if (player != null) player.sendSystemMessage(Component.literal("[Patches] CURIOSITY: " + state + " — " + detail)); }
 
     private boolean allowFamiliarity(PatchesFamiliarity.Category category, PatchesCuriosityPriority priority) {
-        var decision = familiarity.evaluate(category, priority, patches.level().getGameTime(), () -> patches.getRandom().nextDouble());
-        if (decision.fresh() && decision.skipChance() > 0) report("FAMILIARITY", String.format(java.util.Locale.ROOT,
-                "%s score=%.2f skip=%.1f%%: %s for this 10-second window", category, decision.score(),
-                decision.skipChance() * 100, decision.allowed() ? "eligible" : "less eager"));
+        int localCount = localFamiliarityCount(category);
+        var decision = familiarity.evaluate(category, priority, localCount, patches.level().getGameTime());
+        if (!decision.allowed() || localCount > 1 || decision.history() >= 1.0) {
+            report("FAMILIARITY", String.format(java.util.Locale.ROOT,
+                    "%s local=%d history=%.2f pressure=%.2f/%s: %s",
+                    category, localCount, decision.history(), decision.pressure(),
+                    Double.isInfinite(decision.threshold()) ? "exempt" : String.format(java.util.Locale.ROOT, "%.2f", decision.threshold()),
+                    decision.allowed() ? "interesting" : "saturated"));
+        }
         return decision.allowed();
+    }
+
+    /**
+     * Counts only nearby examples Patches can currently perceive. The count is bounded
+     * because familiarity only needs to distinguish isolated finds from a locally common scene.
+     */
+    private int localFamiliarityCount(PatchesFamiliarity.Category category) {
+        if (category == PatchesFamiliarity.Category.TRAPPED_ALLAY
+                || category == PatchesFamiliarity.Category.DIAMOND
+                || category == PatchesFamiliarity.Category.EMERALD
+                || category == PatchesFamiliarity.Category.ANCIENT_DEBRIS) return 1;
+
+        AABB search = patches.getBoundingBox().inflate(SCAN_RADIUS, 3.0, SCAN_RADIUS);
+        int count;
+        switch (category) {
+            case AXOLOTL -> count = patches.level().getEntitiesOfClass(Axolotl.class, search,
+                    entity -> entity.isAlive() && !isBlueAxolotl(entity) && patches.hasLineOfSight(entity)).size();
+            case BLUE_AXOLOTL -> count = patches.level().getEntitiesOfClass(Axolotl.class, search,
+                    entity -> entity.isAlive() && isBlueAxolotl(entity) && patches.hasLineOfSight(entity)).size();
+            case PINK_SHEEP -> count = patches.level().getEntitiesOfClass(Sheep.class, search,
+                    entity -> entity.isAlive() && entity.getColor() == DyeColor.PINK && patches.hasLineOfSight(entity)).size();
+            case WANDERING_TRADER -> count = patches.level().getEntitiesOfClass(WanderingTrader.class, search,
+                    entity -> entity.isAlive() && patches.hasLineOfSight(entity)).size();
+            case SNIFFER -> count = patches.level().getEntitiesOfClass(Sniffer.class, search,
+                    entity -> entity.isAlive() && patches.hasLineOfSight(entity)).size();
+            case LOOT_VEHICLE -> count = patches.level().getEntitiesOfClass(Entity.class, search,
+                    entity -> entity.isAlive() && hasUnresolvedVehicleLoot(entity) && patches.hasLineOfSight(entity)).size();
+            case GEODE -> count = 1; // Feature-level recognition is intentionally not repeated just to count density.
+            default -> {
+                BlockPos origin = patches.blockPosition();
+                int radius = (int) Math.ceil(SCAN_RADIUS);
+                count = 0;
+                for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-radius, -3, -radius), origin.offset(radius, 3, radius))) {
+                    if (count >= 8 || pos.distSqr(origin) > SCAN_RADIUS * SCAN_RADIUS || !patches.level().hasChunkAt(pos)) continue;
+                    boolean matches = switch (category) {
+                        case FLOWER -> patches.level().getBlockState(pos).is(BlockTags.FLOWERS);
+                        case LOW_BLOCK -> isLowCuriosityBlock(pos);
+                        case ARCHAEOLOGY -> isUnresolvedArchaeology(pos);
+                        case LOOT_CONTAINER -> isUnresolvedLootContainer(pos);
+                        default -> false;
+                    };
+                    if (matches && canSeeBlock(pos)) count++;
+                }
+            }
+        }
+        return Math.max(1, Math.min(8, count));
     }
 
     private PatchesFamiliarity.Category valuableCategory(BlockPos pos) {
