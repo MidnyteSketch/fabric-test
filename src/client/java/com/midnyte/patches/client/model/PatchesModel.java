@@ -17,6 +17,7 @@ public final class PatchesModel extends EntityModel<PatchesRenderState> {
     private static final float HEAD_XY_SCALE = 9.5F / 8.0F;
 
     private static final float BODY_X_SCALE = 7.5F / 7.0F;
+    private static final float BODY_Y_SCALE = 9.25F / 10.0F;
     private static final float BODY_Z_SCALE = 4.0F / 3.0F;
 
     private static final float LEG_X_SCALE = 4.25F / 4.0F;
@@ -95,7 +96,7 @@ public final class PatchesModel extends EntityModel<PatchesRenderState> {
                         0.0F,
                         0.0F,
                         BODY_X_SCALE,
-                        1.0F,
+                        BODY_Y_SCALE,
                         BODY_Z_SCALE
                 )
         );
