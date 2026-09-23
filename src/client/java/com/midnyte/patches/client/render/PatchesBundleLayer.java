@@ -47,7 +47,7 @@ public final class PatchesBundleLayer extends RenderLayer<PatchesRenderState, Pa
          * That scale should affect the attachment point, but not distort the
          * vanilla Bundle item itself. Cancel it before rendering the item.
          */
-        poseStack.scale(7.0F / 7.5F, 1.0F, 3.0F / 4.0F);
+        poseStack.scale(7.0F / 7.5F, 10.0F / 9.25F, 3.0F / 4.0F);
 
         /*
          * Sit the Bundle close against the left flank and slightly lower than
