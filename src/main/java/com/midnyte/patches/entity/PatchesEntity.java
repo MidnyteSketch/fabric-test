@@ -53,6 +53,7 @@ public final class PatchesEntity extends PathfinderMob {
     private PatchesCuriosityGoal curiosityGoal;
     private PatchesFollowGoal followGoal;
     private final Set<String> rememberedGeodes = new HashSet<>();
+    private final Set<String> rememberedDiscoveryStructures = new HashSet<>();
     private final Set<BlockPos> rememberedFlowerCuriosities = new HashSet<>();
     private final Set<BlockPos> rememberedLowBlockCuriosities = new HashSet<>();
     private final Set<UUID> rememberedAxolotlCuriosities = new HashSet<>();
@@ -103,6 +104,16 @@ public final class PatchesEntity extends PathfinderMob {
     }
     public void rememberGeode(PatchesGeode.Feature feature) {
         rememberedGeodes.add(feature.memoryKey(level().dimension().identifier().toString()));
+    }
+
+    private String discoveryStructureMemoryKey(BlockPos pos) {
+        return level().dimension().identifier() + "|" + pos.getX() + "," + pos.getY() + "," + pos.getZ();
+    }
+    public boolean hasRememberedDiscoveryStructure(BlockPos pos) {
+        return rememberedDiscoveryStructures.contains(discoveryStructureMemoryKey(pos));
+    }
+    public void rememberDiscoveryStructure(BlockPos pos) {
+        rememberedDiscoveryStructures.add(discoveryStructureMemoryKey(pos));
     }
 
     public void rememberFlowerCuriosity(BlockPos pos) { rememberedFlowerCuriosities.add(pos.immutable()); }
@@ -214,6 +225,7 @@ public final class PatchesEntity extends PathfinderMob {
         ItemStack bundle = getBundleStack(); if (!bundle.isEmpty()) output.store("PatchesBundle", ItemStack.CODEC, bundle);
         ItemStack spyglass = getSpyglassStack(); if (!spyglass.isEmpty()) output.store("PatchesSpyglass", ItemStack.CODEC, spyglass);
         output.putString("PatchesRememberedGeodes", String.join(";", rememberedGeodes));
+        output.putString("PatchesRememberedDiscoveryStructures", String.join(";", rememberedDiscoveryStructures));
         output.putString("PatchesRememberedFlowers", encodeBlockPositions(rememberedFlowerCuriosities));
         output.putString("PatchesRememberedLowBlocks", encodeBlockPositions(rememberedLowBlockCuriosities));
         output.putString("PatchesRememberedAxolotls", encodeAxolotlMemory());
@@ -236,6 +248,9 @@ public final class PatchesEntity extends PathfinderMob {
         rememberedGeodes.clear();
         String geodes = input.getStringOr("PatchesRememberedGeodes", "");
         if (!geodes.isEmpty()) java.util.Collections.addAll(rememberedGeodes, geodes.split(";"));
+        rememberedDiscoveryStructures.clear();
+        String discoveryStructures = input.getStringOr("PatchesRememberedDiscoveryStructures", "");
+        if (!discoveryStructures.isEmpty()) java.util.Collections.addAll(rememberedDiscoveryStructures, discoveryStructures.split(";"));
         decodeBlockPositions(input.getStringOr("PatchesRememberedFlowers", ""), rememberedFlowerCuriosities);
         decodeBlockPositions(input.getStringOr("PatchesRememberedLowBlocks", ""), rememberedLowBlockCuriosities);
         decodeAxolotlMemory(input.getStringOr("PatchesRememberedAxolotls", ""));
