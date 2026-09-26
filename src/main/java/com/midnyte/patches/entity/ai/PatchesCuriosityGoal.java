@@ -5,7 +5,10 @@ import com.midnyte.patches.entity.PatchesExpression;
 import com.midnyte.patches.entity.PatchesMode;
 import com.midnyte.patches.mixin.BrushableBlockEntityAccessor;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.animal.allay.Allay;
@@ -14,9 +17,11 @@ import net.minecraft.world.entity.animal.sheep.Sheep;
 import net.minecraft.world.entity.animal.sniffer.Sniffer;
 import net.minecraft.world.entity.npc.wanderingtrader.WanderingTrader;
 import net.minecraft.world.entity.ai.goal.Goal;
+import net.minecraft.world.entity.ai.util.LandRandomPos;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.DyeColor;
 import net.minecraft.world.entity.vehicle.ContainerEntity;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ChestBlock;
@@ -35,6 +40,9 @@ import java.util.List;
 import java.util.HashSet;
 import java.util.Set;
 import net.minecraft.world.entity.animal.equine.TraderLlama;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import net.minecraft.world.level.levelgen.structure.Structure;
+import net.minecraft.world.level.levelgen.structure.StructureStart;
 import net.minecraft.world.level.pathfinder.PathType;
 import net.minecraft.world.level.pathfinder.WalkNodeEvaluator;
 
@@ -64,7 +72,10 @@ public final class PatchesCuriosityGoal extends Goal {
     private static final int CURIOSITY_APPROACH_TIMEOUT_TICKS = 20 * 20;
     private static final double VALUABLE_OBSERVATION_RANGE = 3.0;
 
-    private static final double DISCOVERY_RADIUS = 18.0;
+    private static final double DISCOVERY_RADIUS = 100.0;
+    private static final double DISCOVERY_MIN_DISTANCE = 16.0;
+    private static final int DISCOVERY_SCAN_INTERVAL_TICKS = 20 * 5;
+    private static final double DISCOVERY_ARRIVAL_DISTANCE = 6.0;
     private final PatchesFamiliarity familiarity = new PatchesFamiliarity();
     private PatchesGeode.Feature geode;
     private List<BlockPos> geodeLooks = List.of();
@@ -103,7 +114,7 @@ public final class PatchesCuriosityGoal extends Goal {
     public void resetCooldownForDebug() {
         cooldownTicks = 0; scanTicks = SCAN_INTERVAL_TICKS; nextDiscoveryScan = 0; nextGeodeScan = 0;
         report("FAMILIARITY", familiarity.describe(patches.level().getGameTime()) + "; local visible saturation is primary; history decays 1 per 20 minutes and resets on reload; exact memories unchanged.");
-        report("DISCOVERY", discovery ? "Active lead: " + phase : discoveryReady() ? "Armed: Spyglass + Following; search radius 18." : "Inactive: requires Spyglass, Following, and player within 6 blocks.");
+        report("DISCOVERY", discovery ? "Active structure lead: " + phase : discoveryReady() ? "Armed: Spyglass + Following; loaded visible structures out to ~100 blocks." : "Inactive: requires Spyglass, Following, and player within 6 blocks.");
     }
     public void interruptForRecall() { if (phase != Phase.IDLE) finish(false); }
 
@@ -134,7 +145,7 @@ public final class PatchesCuriosityGoal extends Goal {
             finish(false); return;
         }
         if (discovery && !validateDiscovery()) return;
-        if (phase == Phase.APPROACH && approachStarted > 0
+        if (!discovery && phase == Phase.APPROACH && approachStarted > 0
                 && patches.level().getGameTime() - approachStarted > CURIOSITY_APPROACH_TIMEOUT_TICKS) {
             report("INTERRUPTED", "Could not reach " + targetName() + " within the approach time budget; giving up.");
             finish(false); return;
@@ -151,6 +162,7 @@ public final class PatchesCuriosityGoal extends Goal {
 
         if (discovery && phase == Phase.APPROACH) { tickDiscoveryLead(); return; }
         switch (targetKind) {
+            case STRUCTURE_DISCOVERY -> tickStructureDiscovery();
             case GEODE -> tickGeode();
             case FLOWER, LOW_BLOCK -> tickLowBlock();
             case AXOLOTL -> tickAxolotl();
@@ -713,18 +725,37 @@ public final class PatchesCuriosityGoal extends Goal {
         axolotlTarget = null; wanderingTraderTarget = null;
     }
 
-    private void beginNotice() { phase = Phase.NOTICE; phaseTicks = 8; patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.SURPRISED); report("NOTICE", "Spotted " + targetName() + " (" + targetPriority + ")."); }
+    private void beginNotice() {
+        phase = Phase.NOTICE;
+        phaseTicks = targetKind == TargetKind.STRUCTURE_DISCOVERY ? 60 : 8;
+        patches.getNavigation().stop();
+        patches.setActivityExpression(PatchesExpression.SURPRISED);
+        report("NOTICE", targetKind == TargetKind.STRUCTURE_DISCOVERY
+                ? "Spyglass scouting found a distant destination."
+                : "Spotted " + targetName() + " (" + targetPriority + ").");
+    }
     private void enterApproach() {
         phase = Phase.APPROACH;
         approachStarted = patches.level().getGameTime();
-        report("APPROACH", "Going over to investigate " + targetName() + ".");
+        if (targetKind == TargetKind.STRUCTURE_DISCOVERY) {
+            nextProgressCheck = 0;
+            failedProgress = 0;
+            lastObservationDistance = Double.POSITIVE_INFINITY;
+            report("DISCOVERY LEAD", "Leading the player toward the distant find.");
+        } else {
+            report("APPROACH", "Going over to investigate " + targetName() + ".");
+        }
     }
 
     private void finish(boolean remember) {
         if (remember) {
-            if (targetKind == TargetKind.GEODE && geode != null) patches.rememberGeode(geode);
-            double score = familiarity.record(currentCategory(), patches.level().getGameTime());
-            report("FAMILIARITY", currentCategory() + " completed; historical score=" + String.format(java.util.Locale.ROOT, "%.2f", score) + "/8 (local saturation remains primary; history decays 1 per 20 minutes).");
+            if (targetKind == TargetKind.STRUCTURE_DISCOVERY && blockMemoryTarget != null) {
+                patches.rememberDiscoveryStructure(blockMemoryTarget);
+                report("DISCOVERY MEMORY", "Remembered this structure-scale destination.");
+            } else {
+                if (targetKind == TargetKind.GEODE && geode != null) patches.rememberGeode(geode);
+                double score = familiarity.record(currentCategory(), patches.level().getGameTime());
+                report("FAMILIARITY", currentCategory() + " completed; historical score=" + String.format(java.util.Locale.ROOT, "%.2f", score) + "/8 (local saturation remains primary; history decays 1 per 20 minutes).");
             if (targetKind == TargetKind.FLOWER && blockTarget != null) patches.rememberFlowerCuriosity(blockTarget);
             if (targetKind == TargetKind.LOW_BLOCK && blockMemoryTarget != null) patches.rememberLowBlockCuriosity(blockMemoryTarget);
             if ((targetKind == TargetKind.AXOLOTL || targetKind == TargetKind.BLUE_AXOLOTL) && axolotlTarget != null) patches.rememberAxolotlCuriosity(axolotlTarget.getUUID());
@@ -736,6 +767,7 @@ public final class PatchesCuriosityGoal extends Goal {
             if (targetKind == TargetKind.LOOT_CONTAINER && blockMemoryTarget != null) patches.rememberLootContainerCuriosity(blockMemoryTarget);
             if (targetKind == TargetKind.LOOT_VEHICLE && lootVehicleTarget != null) patches.rememberLootVehicleCuriosity(lootVehicleTarget.getUUID());
             if (targetKind == TargetKind.VALUABLE_BLOCK && blockTarget != null) patches.rememberValuableCuriosity(valuableKind(blockTarget), blockTarget);
+            }
         }
         clearExploration();
         patches.getNavigation().stop(); patches.clearActivityExpression(); targetKind = null; targetPriority = null; blockTarget = null; blockMemoryTarget = null; axolotlTarget = null; wanderingTraderTarget = null; snifferTarget = null; pinkSheepTarget = null; trappedAllayTarget = null; lootVehicleTarget = null;
@@ -743,6 +775,7 @@ public final class PatchesCuriosityGoal extends Goal {
     }
 
     private boolean targetStillValid() {
+        if (targetKind == TargetKind.STRUCTURE_DISCOVERY) return blockTarget != null && blockMemoryTarget != null;
         if (targetKind == TargetKind.GEODE) return geode != null && blockTarget != null && patches.level().hasChunkAt(blockTarget) && PatchesGeode.isInterior(patches.level().getBlockState(blockTarget));
         if (targetKind == TargetKind.FLOWER) return blockTarget != null && patches.level().getBlockState(blockTarget).is(BlockTags.FLOWERS);
         if (targetKind == TargetKind.LOW_BLOCK) return blockTarget != null && isLowCuriosityBlock(blockTarget);
@@ -1084,6 +1117,7 @@ public final class PatchesCuriosityGoal extends Goal {
     private void lookAtLootVehicle() { patches.getLookControl().setLookAt(lootVehicleTarget, 20.0F, patches.getMaxHeadXRot()); }
     private String targetName() {
         return switch (targetKind) {
+            case STRUCTURE_DISCOVERY -> "something interesting in the distance";
             case GEODE -> "an Amethyst Geode";
             case AXOLOTL -> "an Axolotl";
             case BLUE_AXOLOTL -> "a rare Blue Axolotl";
@@ -1199,6 +1233,7 @@ public final class PatchesCuriosityGoal extends Goal {
     }
 
     private PatchesFamiliarity.Category currentCategory() {
+        if (targetKind == TargetKind.STRUCTURE_DISCOVERY) throw new IllegalStateException("Discovery structures do not use curiosity familiarity");
         return targetKind == TargetKind.VALUABLE_BLOCK ? valuableCategory(blockTarget)
                 : PatchesFamiliarity.Category.valueOf(targetKind.name());
     }
@@ -1324,71 +1359,155 @@ public final class PatchesCuriosityGoal extends Goal {
                 && player != null && player.isAlive() && !player.isSpectator() && patches.distanceTo(player) <= 6.0;
     }
 
-    private record DiscoveryCandidate(BlockPos pos, TargetKind kind, PatchesCuriosityPriority priority) {}
+    private record DiscoveryStructureCandidate(
+            BlockPos center,
+            BlockPos visibleAnchor,
+            double distanceSqr,
+            Identifier id
+    ) {}
 
+    /**
+     * Discovery Mode is intentionally structure-scale. It only inspects structure starts
+     * already present in loaded chunks, so a scan does not generate or pull in distant terrain.
+     * A structure must also have a direct visible ray to some part of its bounding box before
+     * Patches can decide that he spotted it with the Spyglass.
+     */
     private boolean chooseDiscoveryTarget() {
         long now = patches.level().getGameTime();
-        if (!discoveryReady() || now < nextDiscoveryScan) return false;
-        nextDiscoveryScan = now + 100;
+        if (!discoveryReady() || now < nextDiscoveryScan || !(patches.level() instanceof ServerLevel level)) return false;
+        nextDiscoveryScan = now + DISCOVERY_SCAN_INTERVAL_TICKS;
+
         BlockPos origin = patches.blockPosition();
-        List<DiscoveryCandidate> candidates = new ArrayList<>();
-        for (BlockPos pos : BlockPos.betweenClosed(origin.offset(-18, -4, -18), origin.offset(18, 4, 18))) {
-            double distance = pos.distSqr(origin);
-            if (distance > DISCOVERY_RADIUS * DISCOVERY_RADIUS || !patches.level().hasChunkAt(pos)) continue;
-            TargetKind kind; PatchesCuriosityPriority priority;
-            if (isValuableBlock(pos) && !patches.hasRememberedValuableCuriosityNear(valuableKind(pos), pos)) {
-                kind = TargetKind.VALUABLE_BLOCK; priority = PatchesCuriosityPriority.HIGH;
-            } else if (isUnresolvedArchaeology(pos) && !patches.hasRememberedArchaeologyCuriosity(pos)) {
-                kind = TargetKind.ARCHAEOLOGY; priority = PatchesCuriosityPriority.MEDIUM;
-            } else if (isUnresolvedLootContainer(pos) && !patches.hasRememberedLootContainerCuriosity(canonicalLootContainerPos(pos))) {
-                kind = TargetKind.LOOT_CONTAINER; priority = PatchesCuriosityPriority.MEDIUM;
-            } else continue;
-            if (!canSeeBlock(pos)) continue;
-            candidates.add(new DiscoveryCandidate(pos.immutable(), kind, priority));
-        }
-        candidates.sort(Comparator.<DiscoveryCandidate>comparingInt(candidate -> -candidate.priority().ordinal())
-                .thenComparingDouble(candidate -> candidate.pos().distSqr(origin)));
-        int attempts = 0;
-        for (DiscoveryCandidate candidate : candidates) {
-            var category = candidate.kind() == TargetKind.VALUABLE_BLOCK ? valuableCategory(candidate.pos())
-                    : PatchesFamiliarity.Category.valueOf(candidate.kind().name());
-            if (!allowFamiliarity(category, candidate.priority())) continue;
-            if (++attempts > 6) break;
-            BlockPos observation = findObservationPoint(candidate.pos(), 1.9, false);
-            if (observation == null) continue;
-            switch (candidate.kind()) {
-                case VALUABLE_BLOCK -> selectValuableBlock(candidate.pos());
-                case ARCHAEOLOGY -> selectArchaeology(candidate.pos());
-                case LOOT_CONTAINER -> selectLootContainer(candidate.pos());
-                default -> throw new IllegalStateException("Unapproved Discovery target");
+        ChunkPos originChunk = ChunkPos.containing(origin);
+        int chunkRadius = (int) Math.ceil(DISCOVERY_RADIUS / 16.0) + 1;
+        var manager = level.structureManager();
+        var structureRegistry = level.registryAccess().lookupOrThrow(Registries.STRUCTURE);
+        Set<String> checkedStarts = new HashSet<>();
+        List<DiscoveryStructureCandidate> candidates = new ArrayList<>();
+
+        for (int dx = -chunkRadius; dx <= chunkRadius; dx++) {
+            for (int dz = -chunkRadius; dz <= chunkRadius; dz++) {
+                var chunk = level.getChunkSource().getChunkNow(originChunk.x() + dx, originChunk.z() + dz);
+                if (chunk == null) continue;
+
+                for (var entry : chunk.getAllReferences().entrySet()) {
+                    Structure structure = entry.getKey();
+                    Identifier id = structureRegistry.getKey(structure);
+                    if (id == null || !isDiscoveryStructure(id)) continue;
+
+                    for (long reference : entry.getValue()) {
+                        ChunkPos startChunkPos = ChunkPos.unpack(reference);
+                        var startChunk = level.getChunkSource().getChunkNow(startChunkPos.x(), startChunkPos.z());
+                        if (startChunk == null) continue;
+
+                        String startKey = id + "@" + reference;
+                        if (!checkedStarts.add(startKey)) continue;
+
+                        StructureStart structureStart = manager.getStartForStructure(structure, startChunk);
+                        if (structureStart == null || !structureStart.isValid()) continue;
+
+                        BoundingBox box = structureStart.getBoundingBox();
+                        BlockPos center = box.getCenter();
+                        double horizontalDistanceSqr = horizontalDistanceSqr(origin, center);
+                        if (horizontalDistanceSqr < DISCOVERY_MIN_DISTANCE * DISCOVERY_MIN_DISTANCE
+                                || horizontalDistanceSqr > DISCOVERY_RADIUS * DISCOVERY_RADIUS
+                                || patches.hasRememberedDiscoveryStructure(center)) continue;
+
+                        BlockPos visibleAnchor = findVisibleStructureAnchor(box);
+                        if (visibleAnchor == null) continue;
+
+                        candidates.add(new DiscoveryStructureCandidate(
+                                center.immutable(), visibleAnchor.immutable(), horizontalDistanceSqr, id));
+                    }
+                }
             }
-            startDiscovery(observation, now);
-            return true;
         }
-        List<Entity> vehicles = patches.level().getEntitiesOfClass(Entity.class,
-                patches.getBoundingBox().inflate(DISCOVERY_RADIUS, 4, DISCOVERY_RADIUS), entity -> entity.isAlive()
-                        && hasUnresolvedVehicleLoot(entity) && !patches.hasRememberedLootVehicleCuriosity(entity.getUUID())
-                        && patches.distanceToSqr(entity) <= DISCOVERY_RADIUS * DISCOVERY_RADIUS && patches.hasLineOfSight(entity));
-        vehicles.sort(Comparator.comparingDouble(patches::distanceToSqr));
-        attempts = 0;
-        for (Entity vehicle : vehicles) {
-            if (++attempts > 4) break;
-            if (!allowFamiliarity(PatchesFamiliarity.Category.LOOT_VEHICLE, PatchesCuriosityPriority.MEDIUM)) break;
-            var path = patches.getNavigation().createPath(vehicle, 1);
-            if (path == null || !path.canReach()) continue;
-            selectLootVehicle(vehicle);
-            startDiscovery(vehicle.blockPosition(), now);
-            return true;
+
+        candidates.sort(Comparator.comparingDouble(DiscoveryStructureCandidate::distanceSqr));
+        if (candidates.isEmpty()) return false;
+
+        DiscoveryStructureCandidate candidate = candidates.getFirst();
+        clearExploration();
+        targetKind = TargetKind.STRUCTURE_DISCOVERY;
+        targetPriority = PatchesCuriosityPriority.MEDIUM;
+        blockTarget = candidate.visibleAnchor();
+        blockMemoryTarget = candidate.center();
+        startDiscovery(candidate.visibleAnchor(), now);
+        report("DISCOVERY TARGET", "Visible loaded structure at ~"
+                + (int) Math.sqrt(candidate.distanceSqr()) + " blocks (" + candidate.id() + ").");
+        return true;
+    }
+
+    private boolean isDiscoveryStructure(Identifier id) {
+        if (!id.getNamespace().equals("minecraft")) return false;
+        String path = id.getPath();
+
+        // Favor places that read as destinations at world scale. Deliberately exclude
+        // buried/underground structures such as mineshafts, strongholds, ancient cities,
+        // trail ruins and trial chambers from Spyglass scouting.
+        return path.startsWith("village_")
+                || path.startsWith("abandoned_camp_")
+                || path.startsWith("ruined_portal")
+                || path.equals("pillager_outpost")
+                || path.equals("woodland_mansion")
+                || path.equals("jungle_pyramid")
+                || path.equals("desert_pyramid")
+                || path.equals("igloo")
+                || path.equals("shipwreck")
+                || path.equals("shipwreck_beached")
+                || path.equals("swamp_hut")
+                || path.equals("ocean_monument")
+                || path.equals("ocean_ruin_cold")
+                || path.equals("ocean_ruin_warm")
+                || path.equals("fortress")
+                || path.equals("bastion_remnant")
+                || path.equals("end_city");
+    }
+
+    /**
+     * Cast a small bounded set of rays through the structure's bounding volume. A hit only
+     * counts when the first solid block encountered is actually inside that structure box.
+     * This keeps Discovery from acting like X-ray structure location.
+     */
+    private BlockPos findVisibleStructureAnchor(BoundingBox box) {
+        Vec3 eye = patches.getEyePosition();
+        int centerX = (box.minX() + box.maxX()) / 2;
+        int centerY = (box.minY() + box.maxY()) / 2;
+        int centerZ = (box.minZ() + box.maxZ()) / 2;
+        int[] xs = { box.minX(), centerX, box.maxX() };
+        int[] ys = { box.maxY(), centerY, box.minY() };
+        int[] zs = { box.minZ(), centerZ, box.maxZ() };
+
+        for (int y : ys) {
+            for (int x : xs) {
+                for (int z : zs) {
+                    BlockPos aim = new BlockPos(x, y, z);
+                    if (!patches.level().hasChunkAt(aim)) continue;
+                    BlockHitResult hit = patches.level().clip(new ClipContext(
+                            eye, Vec3.atCenterOf(aim), ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, patches));
+                    if (hit.getType() == HitResult.Type.BLOCK && box.inflatedBy(1).isInside(hit.getBlockPos())) {
+                        return hit.getBlockPos().immutable();
+                    }
+                }
+            }
         }
-        return false;
+        return null;
+    }
+
+    private double horizontalDistanceSqr(BlockPos a, BlockPos b) {
+        double dx = a.getX() - b.getX();
+        double dz = a.getZ() - b.getZ();
+        return dx * dx + dz * dz;
     }
 
     private void startDiscovery(BlockPos observation, long now) {
-        clearExploration();
-        discovery = true; discoveryPlayer = patches.getFollowingPlayer(); observationPoint = observation;
-        activityStarted = now; nextProgressCheck = now + 20;
+        discovery = true;
+        discoveryPlayer = patches.getFollowingPlayer();
+        observationPoint = observation;
+        activityStarted = now;
+        nextProgressCheck = 0;
         lastPlayerPosition = discoveryPlayer.position();
-        report("DISCOVERY", "Leading to " + targetName() + "; pause at 8 blocks, resume within 4.5; Follow safety unchanged.");
+        report("DISCOVERY", "Scout signal first; then lead toward the visible structure. Pause at 8 blocks, resume within 4.5.");
     }
 
     private boolean validateDiscovery() {
@@ -1399,11 +1518,13 @@ public final class PatchesCuriosityGoal extends Goal {
                 || discoveryPlayer.isSpectator() || discoveryPlayer.level() != patches.level()) reason = "player unavailable";
         else if (patches.hurtTime > 0) reason = "hurt interrupts exploration";
         else if (patches.distanceTo(discoveryPlayer) >= 12) reason = "Follow catch-up distance reached";
-        else if (now - activityStarted > 1200) reason = "exploration time budget exhausted";
+        else if (now - activityStarted > 1800) reason = "exploration time budget exhausted";
         else if (patches.tickCount % 20 == 0) {
-            boolean visible = targetKind == TargetKind.LOOT_VEHICLE ? lootVehicleTarget != null && patches.hasLineOfSight(lootVehicleTarget)
-                    : blockTarget != null && patches.level().hasChunkAt(blockTarget) && canSeeBlock(blockTarget);
-            if (!visible) reason = "discovery no longer visible";
+            if (targetKind != TargetKind.STRUCTURE_DISCOVERY) {
+                boolean visible = targetKind == TargetKind.LOOT_VEHICLE ? lootVehicleTarget != null && patches.hasLineOfSight(lootVehicleTarget)
+                        : blockTarget != null && patches.level().hasChunkAt(blockTarget) && canSeeBlock(blockTarget);
+                if (!visible) reason = "discovery no longer visible";
+            }
             if (lastPlayerPosition != null && patches.distanceTo(discoveryPlayer) > 6) {
                 Vec3 movement = discoveryPlayer.position().subtract(lastPlayerPosition);
                 Vec3 away = discoveryPlayer.position().subtract(patches.position()).normalize();
@@ -1426,7 +1547,7 @@ public final class PatchesCuriosityGoal extends Goal {
             patches.getNavigation().stop(); patches.setActivityExpression(PatchesExpression.SURPRISED);
             if (separation <= 4.5) {
                 leadWaiting = false; failedProgress = 0; lastObservationDistance = Double.POSITIVE_INFINITY;
-                nextProgressCheck = now + 20; report("DISCOVERY LEAD", "Player joined; continuing.");
+                nextProgressCheck = 0; report("DISCOVERY LEAD", "Player joined; continuing.");
             } else {
                 int cycle = beckonCycleTicks++ % 60;
                 if (cycle < 38) {
@@ -1439,7 +1560,23 @@ public final class PatchesCuriosityGoal extends Goal {
                 return;
             }
         }
-        patches.setActivityExpression(PatchesExpression.SURPRISED); lookAt(discoverySubject());
+
+        patches.setActivityExpression(PatchesExpression.SURPRISED);
+        lookAt(discoverySubject());
+
+        if (targetKind == TargetKind.STRUCTURE_DISCOVERY) {
+            double horizontalDistance = Math.sqrt(horizontalDistanceSqr(patches.blockPosition(), blockTarget));
+            if (horizontalDistance <= DISCOVERY_ARRIVAL_DISTANCE) {
+                patches.getNavigation().stop();
+                phase = Phase.INSPECT;
+                phaseTicks = 40;
+                report("DISCOVERY ARRIVAL", "Reached the distant find; taking it in before sharing the moment.");
+                return;
+            }
+            moveDiscoveryTowardStructure(now);
+            return;
+        }
+
         boolean reached = targetKind == TargetKind.LOOT_VEHICLE ? patches.distanceTo(lootVehicleTarget) <= AXOLOTL_COMFORT_DISTANCE
                 : patches.distanceToSqr(Vec3.atBottomCenterOf(observationPoint)) <= 0.64;
         if (reached) {
@@ -1452,9 +1589,84 @@ public final class PatchesCuriosityGoal extends Goal {
         moveToObservation(now);
     }
 
+    /**
+     * Patches' normal FOLLOW_RANGE is much shorter than a ~100-block scout destination.
+     * Repeated short land-biased waypoints let vanilla navigation solve the trip locally
+     * instead of asking it for one enormous path.
+     */
+    private void moveDiscoveryTowardStructure(long now) {
+        if (now < nextProgressCheck) return;
+        nextProgressCheck = now + 20;
+
+        Vec3 destination = Vec3.atCenterOf(blockTarget);
+        double distance = Math.sqrt(horizontalDistanceSqr(patches.blockPosition(), blockTarget));
+        Vec3 waypoint = LandRandomPos.getPosTowards(patches, 14, 7, destination);
+        boolean started = waypoint != null
+                && patches.getNavigation().moveTo(waypoint.x, waypoint.y, waypoint.z, APPROACH_SPEED);
+
+        if (!started && distance <= 20.0) {
+            started = patches.getNavigation().moveTo(destination.x, destination.y, destination.z, APPROACH_SPEED);
+        }
+
+        if (!started || (lastObservationDistance < Double.POSITIVE_INFINITY
+                && lastObservationDistance - distance < 0.35)) failedProgress++;
+        else failedProgress = 0;
+        lastObservationDistance = distance;
+
+        if (failedProgress >= 4) {
+            report("DISCOVERY STOP", "Four failed/no-progress local path checks while leading; abandoning the scout trip cleanly.");
+            finish(false);
+        }
+    }
+
     private Vec3 discoverySubject() {
         return targetKind == TargetKind.LOOT_VEHICLE ? lootVehicleTarget.position().add(0, lootVehicleTarget.getBbHeight() * 0.5, 0)
                 : Vec3.atCenterOf(blockTarget);
+    }
+
+    private void tickStructureDiscovery() {
+        switch (phase) {
+            case NOTICE -> {
+                patches.getNavigation().stop();
+                patches.setActivityExpression(PatchesExpression.SURPRISED);
+                Player player = relevantPlayer();
+
+                // First visibly lock onto the distant direction, then make a clear player-facing
+                // "I found something" signal, then look back toward the destination before leaving.
+                if (phaseTicks > 42 || phaseTicks <= 12 || player == null) {
+                    lookAt(discoverySubject());
+                } else {
+                    patches.getLookControl().setLookAt(player, 30.0F, patches.getMaxHeadXRot());
+                    if ((phaseTicks == 36 || phaseTicks == 24) && patches.onGround()) {
+                        Vec3 motion = patches.getDeltaMovement();
+                        patches.setDeltaMovement(motion.x, 0.34, motion.z);
+                    }
+                }
+
+                if (--phaseTicks <= 0) enterApproach();
+            }
+            case INSPECT -> {
+                patches.getNavigation().stop();
+                patches.setActivityExpression(PatchesExpression.SURPRISED);
+                lookAt(discoverySubject());
+                if (--phaseTicks <= 0) {
+                    phase = Phase.SHARE_REACTION;
+                    phaseTicks = SHARE_REACTION_TICKS;
+                    report("DISCOVERY SHARE", "Player followed the lead; sharing the successful find.");
+                }
+            }
+            case SHARE_REACTION -> {
+                patches.getNavigation().stop();
+                patches.setActivityExpression(PatchesExpression.CONTENT);
+                Player player = relevantPlayer();
+                if (player != null) patches.getLookControl().setLookAt(player, 20.0F, patches.getMaxHeadXRot());
+                if (--phaseTicks <= 0) {
+                    report("COMPLETE", "Finished the structure-scale Discovery trip.");
+                    finish(true);
+                }
+            }
+            default -> { }
+        }
     }
 
     private void moveToObservation(long now) {
@@ -1481,6 +1693,6 @@ public final class PatchesCuriosityGoal extends Goal {
         }
     }
 
-    private enum TargetKind { GEODE, FLOWER, LOW_BLOCK, AXOLOTL, BLUE_AXOLOTL, PINK_SHEEP, TRAPPED_ALLAY, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, LOOT_CONTAINER, LOOT_VEHICLE, VALUABLE_BLOCK }
+    private enum TargetKind { STRUCTURE_DISCOVERY, GEODE, FLOWER, LOW_BLOCK, AXOLOTL, BLUE_AXOLOTL, PINK_SHEEP, TRAPPED_ALLAY, WANDERING_TRADER, SNIFFER, ARCHAEOLOGY, LOOT_CONTAINER, LOOT_VEHICLE, VALUABLE_BLOCK }
     private enum Phase { IDLE, NOTICE, APPROACH, INSPECT, SHARE_WAIT, PLAYER_INVITE, BECKON, SHARE_REACTION }
 }
